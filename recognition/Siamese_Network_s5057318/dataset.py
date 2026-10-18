@@ -5,10 +5,19 @@ import os
 import numpy as np
 import pandas as pd
 
-from inspect_data import extract_real_id
-
 SEED = 42
 FRACTIONS = {"train": 0.70, "val": 0.15, "test": 0.15}
+
+
+def extract_real_id(value):
+    """Return the first non-dummy ID in a possibly comma-separated field, else None."""
+    if pd.isna(value):
+        return None
+    for part in str(value).split(","):
+        part = part.strip().strip("\"'").strip()
+        if part and not part.lower().startswith("dummy"):
+            return part
+    return None
 
 
 def load_clean_metadata(data_dir):

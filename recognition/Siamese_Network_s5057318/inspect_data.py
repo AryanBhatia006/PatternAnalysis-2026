@@ -4,16 +4,7 @@ import os
 
 import pandas as pd
 
-
-def extract_real_id(value):
-    """Return the first non-dummy ID in a possibly comma-separated field, else None."""
-    if pd.isna(value):
-        return None
-    for part in str(value).split(","):
-        part = part.strip().strip("\"'").strip()
-        if part and not part.lower().startswith("dummy"):
-            return part
-    return None
+from dataset import extract_real_id
 
 
 def main():
