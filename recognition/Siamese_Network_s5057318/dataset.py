@@ -4,9 +4,14 @@ import os
 
 import numpy as np
 import pandas as pd
+import torch
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
 
 SEED = 42
 FRACTIONS = {"train": 0.70, "val": 0.15, "test": 0.15}
+IMAGE_SIZE = 224
 
 
 def extract_real_id(value):
@@ -69,6 +74,77 @@ def check_no_id_overlap(splits):
             if shared:
                 raise AssertionError(
                     f"{len(shared)} real IDs in both {a} and {b}, e.g. {sorted(shared)[:5]}")
+
+
+def compute_mean_std(df, image_dir):
+    """Per-channel mean/std over the images in `df` (pass the train split only)."""
+    to_tensor = transforms.Compose([transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+                                    transforms.ToTensor()])
+    total = torch.zeros(3, dtype=torch.float64)
+    total_sq = torch.zeros(3, dtype=torch.float64)
+    for isic_id in df["isic_id"]:
+        img = to_tensor(_load_rgb(image_dir, isic_id)).double()
+        total += img.sum(dim=(1, 2))
+        total_sq += (img ** 2).sum(dim=(1, 2))
+    n_pixels = len(df) * IMAGE_SIZE * IMAGE_SIZE
+    mean = total / n_pixels
+    std = (total_sq / n_pixels - mean ** 2).sqrt()
+    return mean.float().tolist(), std.float().tolist()
+
+
+def _load_rgb(image_dir, isic_id):
+    return Image.open(os.path.join(image_dir, f"{isic_id}.jpg")).convert("RGB")
+
+
+def build_transform(mean, std, train):
+    """Augmentation (flips, small rotation) is applied for the train split only."""
+    steps = [transforms.Resize((IMAGE_SIZE, IMAGE_SIZE))]
+    if train:
+        steps += [transforms.RandomHorizontalFlip(),
+                  transforms.RandomVerticalFlip(),
+                  transforms.RandomRotation(15)]
+    steps += [transforms.ToTensor(), transforms.Normalize(mean, std)]
+    return transforms.Compose(steps)
+
+
+class ISICDataset(Dataset):
+    """One split of the cleaned metadata; images are read from <image_dir>/<isic_id>.jpg.
+
+    Items are (image tensor of shape 3x224x224, float label). The split's
+    DataFrame (with `real_id`) is kept in `self.df`.
+    """
+
+    def __init__(self, split_df, image_dir, transform):
+        self.df = split_df.reset_index(drop=True)
+        self.image_dir = image_dir
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        image = self.transform(_load_rgb(self.image_dir, row["isic_id"]))
+        return image, torch.tensor(row["target"], dtype=torch.float32)
+
+
+def get_dataloaders(splits, image_dir, batch_size=32, num_workers=0, seed=SEED):
+    """Return (train_loader, val_loader, test_loader) from the dict of split_by_id.
+
+    Normalisation statistics come from the train split only; only the train
+    loader augments and shuffles.
+    """
+    mean, std = compute_mean_std(splits["train"], image_dir)
+    generator = torch.Generator().manual_seed(seed)
+    loaders = []
+    for name in ("train", "val", "test"):
+        train = name == "train"
+        dataset = ISICDataset(splits[name], image_dir, build_transform(mean, std, train))
+        dataset.mean, dataset.std = mean, std
+        loaders.append(DataLoader(dataset, batch_size=batch_size, shuffle=train,
+                                  num_workers=num_workers,
+                                  generator=generator if train else None))
+    return tuple(loaders)
 
 
 def main():
