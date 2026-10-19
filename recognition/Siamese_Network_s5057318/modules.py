@@ -64,3 +64,33 @@ class SiameseEncoder(nn.Module):
     def forward(self, x):
         x = F.adaptive_avg_pool2d(self.features(x), 1).flatten(1)  # [N, 256]
         return F.normalize(self.fc(x), dim=1)  # L2-normalise each embedding
+
+
+class ContrastiveLoss(nn.Module):
+    """Contrastive loss for pairs of embeddings.
+
+    Label convention: y = 0 for a SIMILAR pair (same class) and y = 1 for a
+    DISSIMILAR pair (different class). With d the Euclidean distance between
+    the two embeddings, the loss per pair is
+
+        (1 - y) * 0.5 * d^2  +  y * 0.5 * clamp(margin - d, min=0)^2
+
+    so similar pairs are pulled together and dissimilar pairs are pushed apart
+    until they are at least `margin` away, after which they contribute nothing.
+    The mean over the batch is returned.
+    """
+
+    def __init__(self, margin=1.0):
+        super().__init__()
+        self.margin = margin
+
+    def loss_from_distance(self, d, y):
+        """Mean contrastive loss given distances `d` and labels `y` (same shape)."""
+        y = y.to(d.dtype)
+        similar = (1 - y) * 0.5 * d.pow(2)
+        dissimilar = y * 0.5 * torch.clamp(self.margin - d, min=0).pow(2)
+        return (similar + dissimilar).mean()
+
+    def forward(self, emb1, emb2, y):
+        """Loss for embedding batches `emb1`, `emb2` of shape [N, D] and labels `y` of shape [N]."""
+        return self.loss_from_distance(F.pairwise_distance(emb1, emb2), y)
