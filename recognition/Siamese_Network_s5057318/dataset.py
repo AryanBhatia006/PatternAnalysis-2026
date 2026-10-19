@@ -147,6 +147,97 @@ def get_dataloaders(splits, image_dir, batch_size=32, num_workers=0, seed=SEED):
     return tuple(loaders)
 
 
+class PairDataset(Dataset):
+    """Image pairs (img1, img2, label) built from ONE split only.
+
+    Label convention (matches ContrastiveLoss): 0 = similar pair (same class),
+    1 = dissimilar pair (different class). Pair kind is set by `idx % 4`:
+    0 = benign-benign, 1 = malignant-malignant, 2 and 3 = dissimilar
+    (one benign, one malignant). So pairs are exactly 50% similar / 50%
+    dissimilar, and malignant images are deliberately oversampled. An image is
+    never paired with itself.
+
+    With `fixed_seed=None` (train) pairs are drawn fresh on every access, so
+    they change every epoch. With an int `fixed_seed` (val/test) all pairs are
+    drawn once at construction and are identical on every run.
+    """
+
+    def __init__(self, split_df, image_dir, transform, num_pairs=None, fixed_seed=None):
+        self.df = split_df.reset_index(drop=True)
+        self.image_dir = image_dir
+        self.transform = transform
+        targets = self.df["target"].to_numpy()
+        self.benign = torch.from_numpy(np.flatnonzero(targets == 0))
+        self.malignant = torch.from_numpy(np.flatnonzero(targets == 1))
+        if len(self.benign) < 2 or len(self.malignant) < 2:
+            raise ValueError("each class needs at least 2 images to form same-class pairs")
+        n = num_pairs if num_pairs is not None else len(self.df)
+        self.num_pairs = n - n % 4  # whole number of (bb, mm, dis, dis) groups
+        self.fixed = fixed_seed is not None
+        if self.fixed:
+            gen = torch.Generator().manual_seed(fixed_seed)
+            self._pairs = [self._draw(k, gen) for k in range(self.num_pairs)]
+
+    @staticmethod
+    def _randint(n, gen):
+        return int(torch.randint(n, (1,), generator=gen))
+
+    def _same_class(self, pool, gen):
+        i = self._randint(len(pool), gen)
+        j = self._randint(len(pool) - 1, gen)
+        if j >= i:  # skip i itself, so the two images are never the same
+            j += 1
+        return int(pool[i]), int(pool[j])
+
+    def _draw(self, idx, gen):
+        kind = idx % 4
+        if kind == 0:
+            return (*self._same_class(self.benign, gen), 0)
+        if kind == 1:
+            return (*self._same_class(self.malignant, gen), 0)
+        a = int(self.benign[self._randint(len(self.benign), gen)])
+        b = int(self.malignant[self._randint(len(self.malignant), gen)])
+        if self._randint(2, gen):  # random order within the dissimilar pair
+            a, b = b, a
+        return a, b, 1
+
+    def draw(self, idx):
+        """Return (row_index_1, row_index_2, label) for pair `idx`, without loading images."""
+        return self._pairs[idx] if self.fixed else self._draw(idx, None)
+
+    def __len__(self):
+        return self.num_pairs
+
+    def __getitem__(self, idx):
+        i, j, label = self.draw(idx)
+        img1 = self.transform(_load_rgb(self.image_dir, self.df.at[i, "isic_id"]))
+        img2 = self.transform(_load_rgb(self.image_dir, self.df.at[j, "isic_id"]))
+        return img1, img2, torch.tensor(label, dtype=torch.float32)
+
+
+def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
+                         seed=SEED, num_pairs=None):
+    """Return (train_loader, val_loader, test_loader) of image pairs.
+
+    Same normalisation (train mean/std) and augmentation policy as
+    get_dataloaders: only train augments. Train pairs are re-drawn every epoch
+    and shuffled; val/test pairs are drawn once from fixed seeds.
+    """
+    mean, std = compute_mean_std(splits["train"], image_dir)
+    generator = torch.Generator().manual_seed(seed)
+    fixed_seeds = {"train": None, "val": seed + 1, "test": seed + 2}
+    loaders = []
+    for name in ("train", "val", "test"):
+        train = name == "train"
+        dataset = PairDataset(splits[name], image_dir, build_transform(mean, std, train),
+                              num_pairs=num_pairs, fixed_seed=fixed_seeds[name])
+        dataset.mean, dataset.std = mean, std
+        loaders.append(DataLoader(dataset, batch_size=batch_size, shuffle=train,
+                                  num_workers=num_workers,
+                                  generator=generator if train else None))
+    return tuple(loaders)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder containing cleaned_metadata.csv")
