@@ -68,7 +68,35 @@ def point_metrics(scores, labels, threshold):
     f1 = 2 * precision * recall / (precision + recall) if tp else 0.0
     specificity = tn / (tn + fp) if tn + fp else float("nan")
     return {"recall": recall, "precision": precision, "f1": f1,
-            "balanced_acc": (recall + specificity) / 2}
+            "balanced_acc": (recall + specificity) / 2, "accuracy": (tp + tn) / len(y)}
+
+
+def select_threshold(scores, labels, rule, min_accuracy=0.80):
+    """Pick a threshold on `scores` (rule: predict malignant when score >= threshold).
+
+    Candidates are the distinct scores. rule "balanced": maximise balanced accuracy,
+    ties to the lowest threshold. rule "recall_acc": highest recall among thresholds
+    with accuracy >= min_accuracy, ties to the higher accuracy, then the lowest
+    threshold. Returns (threshold, metrics dict), or (None, None) if none qualifies.
+    """
+    scores, y = np.asarray(scores, dtype=float), np.asarray(labels).astype(bool)
+    candidates = np.unique(scores)  # ascending
+    pred = scores[None, :] >= candidates[:, None]
+    tp = (pred & y).sum(axis=1)
+    tn = (~pred & ~y).sum(axis=1)
+    eps = 1e-12  # float tolerance when comparing ties
+    if rule == "balanced":
+        balanced = (tp / y.sum() + tn / (~y).sum()) / 2
+        index = int(np.flatnonzero(balanced >= balanced.max() - eps)[0])
+    elif rule == "recall_acc":
+        eligible = np.flatnonzero((tp + tn) / len(y) >= min_accuracy - eps)
+        if len(eligible) == 0:
+            return None, None
+        keys = list(zip(tp[eligible], (tp + tn)[eligible]))  # (recall, accuracy) as counts
+        index = int(eligible[keys.index(max(keys))])  # first max = lowest threshold on full ties
+    else:
+        raise ValueError(f"unknown rule {rule!r}")
+    return float(candidates[index]), point_metrics(scores, y, candidates[index])
 
 
 def choose_thresholds(val_scores, val_labels):
@@ -461,6 +489,31 @@ def main():
         print(f"{name:9s} {n_params(model):>11d} {peak:>31s} {ms:>10.2f}")
     print(f"siamese reference-set embedding (separate): {n_refs_total} images in {t_ref:.2f}s "
           f"= {1000 * t_ref / n_refs_total:.2f} ms/image (one-off cost)")
+
+    # ------------------------------------------------ extra: alternative thresholds (VAL only)
+    def fmt(x):
+        return "n/a" if x != x else f"{x:.4f}"  # NaN -> n/a
+
+    print("\n== Alternative thresholds chosen on VAL only (predict malignant when score >= threshold) ==")
+    rules = (("(a) maximise balanced accuracy", "balanced"),
+             ("(b) highest recall with val accuracy >= 0.80", "recall_acc"))
+    for name in names:
+        for title, rule in rules:
+            t, val_m = select_threshold(val_scores[name], val_labels, rule)
+            if t is None:
+                print(f"{name} {title}: none")
+                continue
+            print(f"{name} {title}: threshold={t:.4f}")
+            rows = [("val (overall)", val_scores[name], val_labels)]
+            rows += [("test overall", test_scores[name], test_labels)]
+            rows += [(f"test {src}", test_scores[name][sources == src], test_labels[sources == src])
+                     for src in ("IP", "HAM")]
+            for label, s_rows, y_rows in rows:
+                m = point_metrics(s_rows, y_rows, t)
+                print(f"   {label:13s} n={len(y_rows):5d} malignant={int(y_rows.sum()):4d}  "
+                      f"accuracy={fmt(m['accuracy'])}  recall={fmt(m['recall'])}  "
+                      f"precision={fmt(m['precision'])}  F1={fmt(m['f1'])}  "
+                      f"balanced acc={fmt(m['balanced_acc'])}")
 
 
 if __name__ == "__main__":

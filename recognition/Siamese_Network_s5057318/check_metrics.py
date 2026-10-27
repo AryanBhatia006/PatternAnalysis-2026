@@ -1,7 +1,7 @@
 """Hand-calculated tests of the AUROC and PR-AUC functions in predict.py."""
 import math
 
-from predict import auroc, average_precision, wilson_interval
+from predict import auroc, average_precision, select_threshold, wilson_interval
 
 failures = 0
 
@@ -32,6 +32,32 @@ for k, n, (lo_exp, hi_exp) in ((9, 176, (0.0271, 0.0943)), (0, 10, (0.0, 0.2775)
     failures += not ok
     print(f"{'PASS' if ok else 'FAIL'}  Wilson({k} of {n}) -> ({lo:.4f}, {hi:.4f}) "
           f"(expected about ({lo_exp}, {hi_exp}))")
+
+# Threshold selection, hand-calculated (rule "balanced" = (a), rule "recall_acc" = (b)).
+def check_threshold(name, scores, labels, rule, expected_t, expected=None):
+    global failures
+    t, m = select_threshold(scores, labels, rule)
+    if expected_t is None:
+        ok = t is None and m is None
+        got = "none" if t is None else f"threshold {t}"
+    else:
+        ok = (t is not None and abs(t - expected_t) < 1e-9
+              and all(abs(m[k] - v) < 1e-4 for k, v in expected.items()))
+        got = "none" if t is None else f"threshold {t}, " + ", ".join(f"{k} {m[k]:.4f}" for k in expected)
+    failures += not ok
+    print(f"{'PASS' if ok else 'FAIL'}  {name} -> {got} (expected "
+          f"{'none' if expected_t is None else f'threshold {expected_t}, {expected}'})")
+
+
+s10 = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+y10 = [0, 0, 0, 0, 0, 1, 0, 1, 1, 1]
+check_threshold("rule (a) 4 points", [0.1, 0.4, 0.35, 0.8], [0, 0, 1, 1], "balanced", 0.35,
+                {"balanced_acc": 0.75})
+check_threshold("rule (a) 10 points", s10, y10, "balanced", 0.6,
+                {"recall": 1.0, "precision": 0.8, "accuracy": 0.9, "balanced_acc": 0.9167})
+check_threshold("rule (b) 10 points", s10, y10, "recall_acc", 0.6,
+                {"recall": 1.0, "precision": 0.8, "accuracy": 0.9, "f1": 0.8889})
+check_threshold("rule (b) nothing reaches accuracy 0.80", [0.1, 0.9], [1, 0], "recall_acc", None)
 
 print("\nALL PASSED" if not failures else f"\n{failures} FAILED")
 raise SystemExit(1 if failures else 0)
