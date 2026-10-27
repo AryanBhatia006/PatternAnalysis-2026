@@ -1,7 +1,5 @@
 # Siamese network for melanoma triage (ISIC, COMP3710 Hard tier)
 
-DRAFT v2. Every [CHECK], [YOUR OBSERVATION] and [YOUR DECISION] marker needs you. Delete this line and every marker when done.
-
 ## 1. What this does
 
 A skin clinic gets a lot of photos of skin spots. A reviewer has to decide which ones look harmless, which ones need a closer look, and which ones look dangerous (melanoma). This project builds a small model that gives each photo a score for how malignant it looks, then uses two cut-offs to sort photos into three groups: auto-clear, refer to a specialist, or flag. I compare two models on exactly the same test photos:
@@ -13,7 +11,7 @@ The main question is whether the score can be trusted. Does it separate the case
 
 ### How it works
 
-Both models use the same four blocks of convolution, batch normalisation, ReLU and max-pooling (32, 64, 128 and 256 channels), then global average pooling. The baseline ends in one linear layer with one output and is trained with a weighted binary cross-entropy loss (the weight is the number of benign images divided by the number of malignant images in the training split). The Siamese network ends in a linear layer with 128 outputs, then each embedding is scaled to length 1. It is trained on pairs of photos with a contrastive loss: similar pairs (same class, label 0) are pulled together, and dissimilar pairs (label 1) are pushed apart until they are at least the margin (1.0) away. Because every embedding has length 1, the distance between two of them is always between 0 and 2.
+Both models use the same four blocks of convolution, batch normalisation, ReLU and max-pooling (32, 64, 128 and 256 channels), then global average pooling. The baseline ends in one linear layer with one output and is trained with a weighted binary cross-entropy loss (the weight is the number of benign images divided by the number of malignant images in the training split). The Siamese network ends in a linear layer with 128 outputs, then each embedding is scaled to length 1. It is trained on pairs of photos with a contrastive loss (Hadsell et al., 2006): similar pairs (same class, label 0) are pulled together, and dissimilar pairs (label 1) are pushed apart until they are at least the margin (1.0) away. Because every embedding has length 1, the distance between two of them is always between 0 and 2.
 
 To score a new photo, I embed 200 benign and 200 malignant reference photos from the training split. The score is the average distance to the 5 nearest benign references minus the average distance to the 5 nearest malignant references. A higher score means the photo looks more like the malignant references.
 
@@ -23,7 +21,7 @@ Figure: `figures/score_hist.png` shows the test scores of both models. Dashed li
 
 ## 2. Feasibility review (shown to my tutor at a prac)
 
-[CHECK: paste the final text you actually showed your tutor, and write the date and any feedback they gave. This is the version from my notes; edit it to match what you presented.]
+Shown to my tutor on [DATE]. Feedback: [TUTOR FEEDBACK, or "none"]. The text I showed:
 
 1. Need and criteria. A clinic reviewer wants help sorting skin photos into clear, flag, or send to a specialist. My question is whether the model's score can be trusted. Success means: (a) the baseline and the Siamese network are scored on the same test split with AUROC, PR-AUC, recall and balanced accuracy, with intervals; plain accuracy is not enough, because saying "benign" every time scores 91.8% on my data; (b) thresholds come from validation only, and I report the real miss rate in the auto-clear tier on test, with an interval; (c) I report each image source separately, because the sources have different malignant rates; (d) each model trains in under 2 hours and 4 GB on one GPU.
 2. Model. A Siamese network trained from scratch with contrastive loss, compared with a baseline CNN. I kept the 14,061 images that have a usable ID (4,794 IDs, 8.5% malignant) and split 70/15/15 by ID.
@@ -37,6 +35,7 @@ Laptop (Windows, CPU; used for the evaluation and the per-source analysis): Pyth
 Lab GPU machine (UQ Virtual GPU Lab, Tesla T4; used for training): Python 3.10, torch 2.14.0+cu130, torchvision 0.29.0+cu130. The course environment on that machine was used as it was, and I did not record the pandas and matplotlib versions there.
 
 Seeds and settings:
+
 - Seed 42 for the split, the reference set, the bootstrap and training. The validation and test pairs use seeds 43 and 44 (seed plus 1 and seed plus 2).
 - Two runs of the split with seed 42 gave identical tables. Seed 7 gave a different split (test set of 2,079 images with 182 malignant, instead of 2,151 with 176).
 - Training uses the Adam optimiser with learning rate 0.001 and PyTorch's default betas (0.9, 0.999), no weight decay, no learning-rate schedule and no gradient clipping. Batch size 32. Margin 1.0. Both models were trained for 30 epochs (the default in `train.py` is 20, so `--epochs 30` was passed) with 3 data-loading workers. The checkpoint with the lowest validation loss is kept, and the test split is used once, at the end.
@@ -67,7 +66,7 @@ sys.argv = ["train.py", "/home/s5057318/isic_data", "--model", model,
 runpy.run_path(repo + "/train.py", run_name="__main__")
 ```
 
-A checkpoint holds the model weights, the epoch, the validation loss and the arguments, but not the normalisation numbers, so `predict.py` recomputes them from the training split. Model weights and the dataset are not committed.
+A checkpoint holds the model weights, the epoch, the validation loss and the arguments, but not the normalisation numbers, so `predict.py` recomputes them from the training split. `predict.py` loads `outputs/baseline_best.pt` and `outputs/siamese_best.pt` (relative to the script's folder). `train.py` writes them and they are not committed, so run the two training commands first. Model weights and the dataset are not committed.
 
 ## 4. Data and preprocessing
 
@@ -97,6 +96,8 @@ Important limitation: a HAM_ ID has one image, so it cannot stop the same patien
 Images are converted to RGB, resized to 224 by 224 and normalised with a mean and standard deviation computed on the training split only (mean 0.815, 0.613, 0.590 and standard deviation 0.151, 0.188, 0.209 for red, green and blue). Training images also get random horizontal and vertical flips and a random rotation of up to 15 degrees either way; validation and test images get no augmentation (checked by loading the same image twice and getting identical tensors). The rotation leaves black corners, which is why the smallest values in a training batch are about -5.4.
 
 Pairs for the Siamese network: each epoch 9,880 pairs from the training split (the number is rounded down to a multiple of 4). Half are similar and half dissimilar. Similar pairs are split evenly between benign-benign and malignant-malignant, so the rare malignant images are shown much more often. Dissimilar pairs are one benign and one malignant image. Pairs are only built inside one split. Training pairs are redrawn each epoch; validation and test pairs are drawn once from a fixed seed and are identical on every run. The baseline simply shuffles the training images.
+
+How I handled the class imbalance (about 8.5% malignant): the split spreads malignant images across train, validation and test; the Siamese network trains on pairs that are half similar and half dissimilar, with malignant images oversampled in the similar pairs; the baseline uses a weighted loss (benign count divided by malignant count in the training split, about 11); thresholds are chosen on validation and not fixed at 0.5; and I judge models with AUROC, PR-AUC, recall and balanced accuracy, not plain accuracy.
 
 Example inputs. Eight training images with their label and ID (all eight happen to be HAM_ images; the data also contains IP_ images). The black corners come from the random rotation used on training images:
 
@@ -152,7 +153,7 @@ Both thresholds come from the validation split only. `t_low` is the highest thre
 | Precision at t_low / at t_high | 0.1505 / 0.4375 | 0.1475 / 0.3438 |
 | Balanced accuracy at t_low / at t_high | 0.7357 / 0.7113 | 0.7314 / 0.5519 |
 
-Accuracy at the two thresholds (worked out from the tier counts above, not printed by my script): baseline 0.557 at `t_low` and 0.907 at `t_high`; Siamese 0.545 and 0.909. The assignment mentions about 0.8 accuracy, but with this much imbalance accuracy mostly reflects how many images are called benign, so I do not use it to rank the models.
+Accuracy at the two thresholds (worked out from the tier counts above, not printed by my script): baseline 0.557 at `t_low` and 0.907 at `t_high`; Siamese 0.545 and 0.909. The next section looks at accuracy in more detail.
 
 ### Accuracy at cut-offs chosen on the validation split
 
@@ -218,7 +219,7 @@ All 9 melanomas the baseline cleared, and all 8 the Siamese model cleared, are I
 | Test inference, GPU (batch of 64) | 0.91 ms per image | 0.92 ms per image |
 | Peak GPU memory, test inference | 837.4 MB | 837.4 MB |
 
-The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The two training losses are different quantities and cannot be compared with each other.
+The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The training plots show losses only. Metrics (AUROC, PR-AUC, recall and accuracy) are computed on the test split once, in `predict.py`, after the best epoch has been chosen on validation loss. The two training losses are different quantities and cannot be compared with each other.
 
 ![baseline loss](figures/baseline_loss.png)
 ![siamese loss](figures/siamese_loss.png)
@@ -227,17 +228,15 @@ The training numbers come from the training logs, and the GPU inference numbers 
 
 ## 6. Failure cases
 
-`figures/failures.png` shows, for each model, the three malignant test images with the lowest scores and the two benign test images with the highest scores.
+`figures/failures.png` shows, for each model, the three malignant test images with the lowest scores and the two benign test images with the highest scores. I cannot judge from a photo whether a lesion is malignant, so the notes below describe what is visible, and the reasons for the failures are guesses that I did not test.
 
 ![failure cases](figures/failures.png)
 
-[YOUR OBSERVATION: for each case below, look at the image yourself and write what you see in your own words. The notes are my first impressions from the picture, and I cannot judge whether a lesion is malignant. Anything about why the model failed is a guess to be tested, not a finding.]
-
-1. `ISIC_3778192` (IP_8972853, malignant). Both models score it as benign (baseline -3.087, below its clearing threshold of -0.949 by 2.14; Siamese -0.199, below its threshold of -0.077 by 0.122, the second largest gap among its 8 misses). First impression: blurry, pink, no sharp lesion edge. Possible trigger: the lesion is hard to see.
-2. `ISIC_6526489` (IP_5550558, malignant, baseline -2.170). First impression: a dark brown lesion with a dark centre and small dots around it. Possible trigger: I do not know; this one looks like it has features I would expect to score as malignant.
-3. `ISIC_6285925` (IP_5399626, malignant, Siamese -0.169). First impression: a small, pale lesion on light skin with hairs and ruler-like marks. Possible trigger: small lesion, low contrast.
-4. `ISIC_0031993` (HAM_0006887, benign, baseline 4.834, the baseline's highest-scoring benign image). First impression: a red textured surface with hairs and no clear lesion. Possible trigger: strong red colour.
-5. `ISIC_6712494` (IP_6017204, benign, baseline 4.481). First impression: purple ink marks on pale skin in a close-up with other objects. Possible trigger: ink marks.
+1. `ISIC_3778192` (IP_8972853, malignant). Both models score it as benign (baseline -3.087, below its clearing threshold of -0.949 by 2.14; Siamese -0.199, below its threshold of -0.077 by 0.122, the second largest gap among its 8 misses). The image is blurry and pink with no sharp lesion edge. Possible trigger: the lesion is hard to see.
+2. `ISIC_6526489` (IP_5550558, malignant, baseline -2.170). A dark brown lesion with a dark centre and small dots around it. I do not know why this one is cleared; it has features I would have expected to score as malignant.
+3. `ISIC_6285925` (IP_5399626, malignant, Siamese -0.169). A small, pale lesion on light skin with hairs and ruler-like marks. Possible trigger: small lesion and low contrast.
+4. `ISIC_0031993` (HAM_0006887, benign, baseline 4.834, the baseline's highest-scoring benign image). A red textured surface with hairs and no clear lesion. Possible trigger: strong red colour.
+5. `ISIC_6712494` (IP_6017204, benign, baseline 4.481). Purple ink marks on pale skin in a close-up with other objects. Possible trigger: ink marks.
 
 The two models share five misses: `ISIC_3778192`, `ISIC_6352565`, `ISIC_6516710`, `ISIC_1159891` and `ISIC_8207974` are cleared by both, which suggests these images look benign to both models and not that the errors are random. One ID can also appear more than once (`IP_8702124` has two images among the baseline's misses and the same two among the Siamese model's), which is why the bootstrap resamples IDs.
 
@@ -245,11 +244,10 @@ A way to test the trigger ideas: count how many of the false flags (108 benign i
 
 ## 7. Recommendation to the project manager
 
-[YOUR DECISION: the facts below are mine; the yes or no and the wording are yours. Change it if you disagree.]
-
 Can we use this model? Not as it is, and if we did, use the baseline and not the Siamese network.
 
 - Neither model is safe enough to clear photos without a human. Both would auto-clear about 47 to 48% of photos, which saves a lot of review, but they would miss about 1 melanoma in 20 overall and about 1 in 10 among IP_ images. That miss rate comes from the validation rule, and its 95% interval on test is roughly 2.3% to 9.4%, so it is not a guarantee.
+- Even with a cut-off chosen for the best balanced accuracy on validation, test accuracy is at best 0.77 (recall 0.81), well below the 0.918 of saying benign every time, which finds no melanomas.
 - The Siamese network costs about 2.2 times the training time and about twice the training memory, takes the same time per image, and does not beat the baseline (PR-AUC 0.29 against 0.45). It catches fewer melanomas in the flag tier (22 of 176, against 84), and its score is a less reliable sign of confidence than the baseline's. On this data the extra complexity is not justified.
 - What I would fix before any deployment: test on photos from other clinics and on the full data including the images I dropped; use a split that is guaranteed patient-safe for all images; check whether the model is recognising the image source; repeat with more seeds; and look at whether a stricter `t_low` (for example one aiming for 99% recall on validation) still auto-clears enough photos to be worth it.
 - A sensible way to use it today: as a sorting aid, where every photo in the refer and flag tiers goes to a person, and auto-cleared photos are still sampled and checked.
@@ -262,35 +260,37 @@ Can we use this model? Not as it is, and if we did, use the baseline and not the
 - Image source may act as a shortcut (see the by-source table).
 - Thresholds were picked on 186 validation malignant images, so they are noisy.
 - Validation and test pairs come from a small number of malignant images used many times.
+- I tried one configuration of each model (one margin, one reference-set size, one architecture, one seed).
 - cuDNN was disabled on the lab machine for training, through a wrapper that is not committed.
 
 ## 9. Artificial Intelligence Usage Disclosure
 
-[CHECK AND REWRITE IN YOUR OWN WORDS. This is a draft of what happened, based on the conversation. Add details from your own notes and correct anything that is wrong.]
-
 Tools: Claude Code (in the terminal) for writing and running code, and the Claude chat assistant for planning, writing the prompts I gave Claude Code, reading outputs, suggesting checks, and drafting this README.
 
 What the AI wrote:
-- Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py` and `check_metrics.py`.
-- Claude chat wrote `check_loader.py` and `verify_split.py`, the lab wrapper `run_train.py`, the commands I ran on Rangpur and the lab machine, and a first draft of the feasibility review and of this README.
 
-How I checked it: [CHECK each line is true for you.]
+- Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py` and `check_metrics.py`. It also wrote the threshold-selection code and its tests, from hand-calculated cases in a prompt written by the Claude chat assistant, with the instruction not to change the expected values.
+- Claude chat wrote `check_loader.py` and `verify_split.py`, the lab wrapper `run_train.py`, the commands I ran on Rangpur and the lab machine, a first draft of the feasibility review and a first draft of this README. Many of my commit messages used wording suggested by Claude chat; I ran every commit myself.
+
+How I checked it:
+
 - Hand-calculated expected values for the contrastive loss (for example distance 0.3 gives 0.045 for a similar pair and 0.245 for a dissimilar pair), and for the metric functions (AUROC 0.75 and PR-AUC 0.8333 on a four-point example).
 - Showed that the loss test fails when the two terms of the loss are swapped (7 of 10 checks failed, then all passed after restoring the file).
 - Checked the pair labels of six validation pairs against the raw csv, and that each pair only uses images from one split.
 - Ran a separate script that rebuilds every ID from the raw csv and counts splits per ID (zero overlaps), ran the seed experiment, and confirmed the same seed gives the same split.
 - Checked that validation and test images get no augmentation, that the normalisation uses the training split only, and that thresholds are chosen on validation only.
-- Compared the overall metrics from the laptop CPU run and the lab GPU run.
+- Compared the overall metrics from the laptop CPU run and the lab GPU run, and checked that the old results were unchanged after I added the accuracy section.
 - Checked that the tier counts and per-source counts add up to the totals, and that `modules.py` contains no numpy.
 - Asked Claude Code to compare this README with the code line by line. It found seven mistakes (a wrong command, a wrong claim about where cuDNN was disabled, two wrong statements about the score deciles and the Siamese model's confidence, a miscounted list of shared misses, a wrong description of one score gap, and a wrong statement about seeds), which are fixed in this version.
 
-Things that went wrong along the way: [YOUR NOTES: for example, debug checkpoints and plots from earlier runs left in the output folder, the cuDNN failure on the lab machine, unpacking an incomplete upload, git commands run in the wrong folder, and anything else you remember.]
+Things that went wrong along the way: the first version of the dataset had placeholder patient IDs that would have let a split look clean while leaking, which is why I rebuilt the IDs and dropped those rows; the debug-run checkpoints and plots from earlier runs were still in the output folder and had to be replaced with the real ones; cuDNN failed to load on the lab machine, so I trained through a wrapper; I once unpacked the data archive before the upload had finished and got an incomplete folder, which I deleted and unpacked again; and I ran some git commands in the wrong folder at first.
 
-The commit log has 15 commits from 18 October to 27 October (before this README). [CHECK: update the count when you finish.]
+The commit log has 19 commits from 18 October to 27 October, not counting the final README commits.
 
 ## 10. References
 
-- Hadsell, Chopra and LeCun (2006), Dimensionality reduction by learning an invariant mapping (contrastive loss). [CHECK full reference]
-- Koch, Zemel and Salakhutdinov (2015), Siamese neural networks for one-shot image recognition (from the assignment spec).
-- ISIC 2020 challenge data and the Kaggle resized copy used here. [CHECK: add the dataset reference and the Kaggle dataset page.]
-- HAM10000 dataset (the HAM_ images). [CHECK: add the reference.]
+- Hadsell, R., Chopra, S. and LeCun, Y. (2006). Dimensionality reduction by learning an invariant mapping. IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 1735-1742. (Contrastive loss.)
+- Koch, G., Zemel, R. and Salakhutdinov, R. (2015). Siamese neural networks for one-shot image recognition. ICML Deep Learning Workshop. (Siamese networks; reference [9] in the assignment spec.)
+- Rotemberg, V. et al. (2021). A patient-centric dataset of images and metadata for identifying melanomas using clinical context. Scientific Data 8, 34. (ISIC 2020 challenge data.)
+- Tschandl, P., Rosendahl, C. and Kittler, H. (2018). The HAM10000 dataset, a large collection of multi-source dermatoscopic images of common pigmented skin lesions. Scientific Data 5, 180161. (The HAM_ images.)
+- Resized copy of the ISIC images used here: Kaggle dataset `roua91/isic-melanoma-dataset-resized-to-224x224`, linked in the assignment spec.
