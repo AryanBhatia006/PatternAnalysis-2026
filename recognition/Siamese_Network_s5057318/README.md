@@ -89,6 +89,16 @@ Split: 70/15/15 by real ID, so all images with the same ID go to the same split.
 | Val | 2,029 | 711 | 186 (9.17%) |
 | Test | 2,151 | 716 | 176 (8.18%) |
 
+Images per source in each split (malignant images in brackets):
+
+| Split | IP_ | HAM_ |
+|---|---|---|
+| Train | 7,870 (406) | 2,011 (427) |
+| Val | 1,595 (86) | 434 (100) |
+| Test | 1,721 (89) | 430 (87) |
+
+HAM_ images are about 20% of each split, and about 5% of IP_ images and 21 to 23% of HAM_ images are malignant in every split.
+
 Checks: `check_no_id_overlap` in `dataset.py`, and a second script, `verify_split.py`, that rebuilds every ID from the raw csv and counts how many splits each ID appears in. Both give zero IDs in more than one split, and 14,061 images with 14,061 unique image IDs.
 
 Important limitation: a HAM_ ID has one image, so it cannot stop the same patient's different lesions landing in different splits. I can only say the split is patient-safe for the IP_ images. I did not check how many HAM patients this affects.
