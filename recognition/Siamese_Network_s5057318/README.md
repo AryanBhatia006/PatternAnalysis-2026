@@ -154,6 +154,26 @@ Both thresholds come from the validation split only. `t_low` is the highest thre
 
 Accuracy at the two thresholds (worked out from the tier counts above, not printed by my script): baseline 0.557 at `t_low` and 0.907 at `t_high`; Siamese 0.545 and 0.909. The assignment mentions about 0.8 accuracy, but with this much imbalance accuracy mostly reflects how many images are called benign, so I do not use it to rank the models.
 
+### Accuracy at cut-offs chosen on the validation split
+
+The assignment mentions about 0.8 accuracy, so I also picked cut-offs on the validation split only, in two ways: (a) the cut-off with the best balanced accuracy, and (b) the cut-off with the highest recall among those with validation accuracy of at least 0.80. I then applied each one unchanged to the test split. If several cut-offs tie, the lowest is used.
+
+| | Baseline (a) | Baseline (b) | Siamese (a) | Siamese (b) |
+|---|---|---|---|---|
+| Cut-off | 0.1051 | -0.0293 | -0.0107 | -0.0072 |
+| Validation accuracy | 0.8221 | 0.8014 | 0.7979 | 0.8019 |
+| Test accuracy | 0.7717 | 0.7336 | 0.7397 | 0.7485 |
+| Test recall | 0.8068 | 0.8352 | 0.8182 | 0.8125 |
+| Test precision | 0.2371 | 0.2127 | 0.2143 | 0.2197 |
+| Test F1 | 0.3665 | 0.3391 | 0.3396 | 0.3458 |
+| Test balanced accuracy | 0.7877 | 0.7799 | 0.7754 | 0.7776 |
+| IP recall / accuracy | 0.6629 / 0.7926 | 0.7191 / 0.7484 | 0.6517 / 0.7467 | 0.6517 / 0.7583 |
+| HAM recall / accuracy | 0.9540 / 0.6884 | 0.9540 / 0.6744 | 0.9885 / 0.7116 | 0.9770 / 0.7093 |
+
+None of these reaches 0.8 on the test split. The best test accuracy is 0.7717 (baseline, rule a), which catches 142 of the 176 melanomas (worked out from the recall). That is far below the 0.9182 of a model that calls everything benign, which finds none, so I do not use accuracy to rank the models. Accuracy fell from about 0.80 to 0.82 on validation to 0.73 to 0.77 on test. I think part of this is that the cut-offs were chosen on the 186 validation melanomas, but I did not test why.
+
+The cut-offs behave very differently on the two sources: recall is 95 to 99% on HAM_ images but only 65 to 72% on IP_ images. This fits the earlier result that every melanoma in the auto-clear group was an IP_ image. It also fits the idea that the models partly recognise the image source, but HAM_ is also the more malignant source, so I cannot separate the two explanations.
+
 ### Does the score say how sure the model is?
 
 Partly. The share of malignant images rises as the score rises, for both models. For the baseline it rises at every step (0%, 0%, 0.5%, 1.4%, 2.8%, 3.3%, 7.4%, 10.7%, 14.9%, 40.9% across ten equal groups of test images). For the Siamese model it rises with small dips (for example 4.7% then 3.3% then 4.7% in the middle groups) and ends at 34.4%. The top tenth of the baseline scores holds 88 of the 176 malignant images and the top tenth of the Siamese scores holds 74.
