@@ -110,6 +110,22 @@ Six validation pairs. Label 0 means a similar pair (same class) and label 1 a di
 
 Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC and recall. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples).
 
+Example output of `predict.py` (first lines, lab T4 run):
+
+```
+device: cuda | seed: 42 | cudnn: False
+val: 2029 images | test: 2151 images (176 malignant)
+
+== Operating points (chosen on VAL only) ==
+baseline  t_low=-0.9492  t_high=1.2939
+siamese   t_low=-0.0770  t_high=0.0823
+
+== Test metrics (2151 images, 176 malignant) ==
+always-benign accuracy: 0.9182
+baseline  AUROC=0.8668  PR-AUC=0.4483
+siamese   AUROC=0.8464  PR-AUC=0.2918
+```
+
 | | Baseline | Siamese |
 |---|---|---|
 | AUROC | 0.8668 [0.8375, 0.8951] | 0.8464 [0.8127, 0.8767] |
