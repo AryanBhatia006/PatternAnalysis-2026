@@ -208,10 +208,14 @@ def main():
     parser.add_argument("--out_dir", default="outputs",
                         help="relative paths are taken from this script's folder")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split_seed", type=int, default=None,
+                        help="seed of the train/val/test split (default: same as --seed)")
     parser.add_argument("--no_cudnn", action="store_true", help="disable cuDNN")
     parser.add_argument("--debug", action="store_true",
                         help="128 val / 128 test images, 20 benign + 20 malignant references")
     args = parser.parse_args()
+    if args.split_seed is None:
+        args.split_seed = args.seed
     if args.no_cudnn:
         torch.backends.cudnn.enabled = False
     out_dir = args.out_dir if os.path.isabs(args.out_dir) else os.path.join(HERE, args.out_dir)
@@ -221,7 +225,7 @@ def main():
           f"{' | DEBUG' if args.debug else ''}")
 
     image_dir = os.path.join(args.data_dir, "combined_images")
-    splits = d.split_by_id(d.load_clean_metadata(args.data_dir), seed=args.seed)
+    splits = d.split_by_id(d.load_clean_metadata(args.data_dir), seed=args.split_seed)
     d.check_no_id_overlap(splits)
     if args.debug:  # same subsets train.py --debug used, so the normalisation matches
         splits = subsample(splits, args.seed)
@@ -234,8 +238,16 @@ def main():
           f"({int(test_df['target'].sum())} malignant)")
 
     # ------------------------------------------------ 1. scores
-    baseline, _ = load_checkpoint(BaselineCNN(), os.path.join(out_dir, "baseline_best.pt"), device)
-    encoder, _ = load_checkpoint(SiameseEncoder(), os.path.join(out_dir, "siamese_best.pt"), device)
+    baseline, base_ckpt = load_checkpoint(BaselineCNN(), os.path.join(out_dir, "baseline_best.pt"), device)
+    encoder, siam_ckpt = load_checkpoint(SiameseEncoder(), os.path.join(out_dir, "siamese_best.pt"), device)
+    for name, ck in (("baseline", base_ckpt), ("siamese", siam_ckpt)):
+        ck_args = ck.get("args", {})
+        ck_seed = ck_args.get("seed")
+        ck_split = ck_args.get("split_seed", ck_seed)  # older checkpoints: split used --seed
+        print(f"{name} checkpoint: seed {ck_seed}, split_seed {ck_split} | "
+              f"using: seed {args.seed}, split_seed {args.split_seed}")
+        if (ck_seed, ck_split) != (args.seed, args.split_seed):
+            print(f"WARNING: {name} checkpoint seeds differ from the ones being used")
 
     # Fixed reference set drawn from the TRAIN split only (seeded).
     train_df = splits["train"].reset_index(drop=True)

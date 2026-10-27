@@ -104,6 +104,10 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--margin", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split_seed", type=int, default=None,
+                        help="seed of the train/val/test split and the val/test pairs "
+                             "(default: same as --seed)")
+    parser.add_argument("--no_cudnn", action="store_true", help="disable cuDNN")
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--out_dir", default="outputs",
                         help="relative paths are taken from this script's folder")
@@ -112,10 +116,14 @@ def main():
     args = parser.parse_args()
     if args.debug:
         args.epochs = DEBUG_EPOCHS
+    if args.split_seed is None:
+        args.split_seed = args.seed
     out_dir = args.out_dir if os.path.isabs(args.out_dir) else os.path.join(HERE, args.out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
     set_seed(args.seed)
+    if args.no_cudnn:
+        torch.backends.cudnn.enabled = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
@@ -123,7 +131,7 @@ def main():
           f"{' | DEBUG' if args.debug else ''}")
 
     image_dir = os.path.join(args.data_dir, "combined_images")
-    splits = d.split_by_id(d.load_clean_metadata(args.data_dir), seed=args.seed)
+    splits = d.split_by_id(d.load_clean_metadata(args.data_dir), seed=args.split_seed)
     d.check_no_id_overlap(splits)
     if args.debug:
         splits = subsample(splits, args.seed)
@@ -132,7 +140,8 @@ def main():
             splits, image_dir, args.batch_size, args.num_workers, seed=args.seed)
     else:
         train_loader, val_loader, test_loader = d.get_pair_dataloaders(
-            splits, image_dir, args.batch_size, args.num_workers, seed=args.seed)
+            splits, image_dir, args.batch_size, args.num_workers, seed=args.seed,
+            split_seed=args.split_seed)
 
     net, step = make_step(args.model, device, args, splits)
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)

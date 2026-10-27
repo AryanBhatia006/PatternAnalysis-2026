@@ -216,16 +216,18 @@ class PairDataset(Dataset):
 
 
 def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
-                         seed=SEED, num_pairs=None):
+                         seed=SEED, num_pairs=None, split_seed=None):
     """Return (train_loader, val_loader, test_loader) of image pairs.
 
     Same normalisation (train mean/std) and augmentation policy as
     get_dataloaders: only train augments. Train pairs are re-drawn every epoch
-    and shuffled; val/test pairs are drawn once from fixed seeds.
+    and shuffled; val/test pairs are drawn once from fixed seeds
+    (split_seed + 1 and split_seed + 2; split_seed defaults to seed).
     """
     mean, std = compute_mean_std(splits["train"], image_dir)
     generator = torch.Generator().manual_seed(seed)
-    fixed_seeds = {"train": None, "val": seed + 1, "test": seed + 2}
+    split_seed = seed if split_seed is None else split_seed
+    fixed_seeds = {"train": None, "val": split_seed + 1, "test": split_seed + 2}
     loaders = []
     for name in ("train", "val", "test"):
         train = name == "train"
