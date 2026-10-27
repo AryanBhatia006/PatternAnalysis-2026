@@ -115,6 +115,29 @@ def bootstrap_by_id(scores_a, scores_b, labels, ids, n_boot, seed):
     return {k: np.array(v) for k, v in out.items()}, skipped
 
 
+def wilson_interval(k, n, z=1.96):
+    """Wilson score interval for a proportion k / n (95% by default)."""
+    if n == 0:
+        return float("nan"), float("nan")
+    p = k / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def print_tier_table(scores, labels, t_low, t_high, indent=""):
+    """Tier counts for `scores` (same format as the main tier table)."""
+    tier = assign_tiers(scores, t_low, t_high)
+    for k, tn in enumerate(["auto-clear", "refer", "flag"]):
+        sel = tier == k
+        n_k, mal_k = int(sel.sum()), int(labels[sel].sum())
+        print(f"{indent}{tn:10s} {n_k:5d} images ({pct(n_k, len(scores)):>6})  malignant in tier: "
+              f"{mal_k} (malignant share of tier: {pct(mal_k, n_k)})")
+    missed, total = int(labels[tier == 0].sum()), int(labels.sum())
+    print(f"{indent}malignant images in auto-clear: {missed} of {total} ({pct(missed, total)})")
+
+
 # ---------------------------------------------------------------- inference
 def sync(device):
     if device.type == "cuda":
@@ -288,6 +311,103 @@ def main():
           f"siamese-baseline {ci(boot['auroc_b'] - boot['auroc_a'])}")
     print(f"PR-AUC  baseline {ci(boot['ap_a'])}  siamese {ci(boot['ap_b'])}  "
           f"siamese-baseline {ci(boot['ap_b'] - boot['ap_a'])}")
+
+    # ------------------------------------------------ extra analyses (thresholds unchanged)
+    names = list(models)
+    ids_arr = np.array(ids)
+    sources = np.array(["IP" if i.startswith("IP_") else "HAM" if i.startswith("HAM_") else "other"
+                        for i in ids])
+    tiers = {name: assign_tiers(test_scores[name], *thresholds[name]) for name in names}
+
+    # By source: same t_low / t_high as above (chosen on all val images).
+    print("\n== By source (same t_low / t_high as above, chosen on all val images) ==")
+    for src in ("IP", "HAM"):
+        m = sources == src
+        n_s, mal_s = int(m.sum()), int(test_labels[m].sum())
+        if n_s == 0:
+            print(f"source {src}: no test images")
+            continue
+        print(f"source {src}: {n_s} test images, {mal_s} malignant, "
+              f"always-benign accuracy {(n_s - mal_s) / n_s:.4f}")
+        if mal_s < 20:
+            print(f"   WARNING: only {mal_s} malignant test images in {src}; estimates are unreliable")
+        for name in names:
+            s_src = test_scores[name][m]
+            print(f"   {name:9s} AUROC={auroc(s_src, test_labels[m]):.4f}  "
+                  f"PR-AUC={average_precision(s_src, test_labels[m]):.4f}")
+            print_tier_table(s_src, test_labels[m], *thresholds[name], indent="      ")
+    n_other = int((sources == "other").sum())
+    if n_other:
+        print(f"note: {n_other} test images have an ID that is neither IP_ nor HAM_")
+
+    # Bootstrap by real_id within each source.
+    print(f"\n== AUROC bootstrap by real_id within each source ({N_BOOT} resamples) ==")
+    for src in ("IP", "HAM"):
+        m = sources == src
+        if not m.any():
+            continue
+        b, skipped = bootstrap_by_id(test_scores["baseline"][m], test_scores["siamese"][m],
+                                     test_labels[m], ids_arr[m].tolist(), N_BOOT, args.seed)
+        if len(b["auroc_a"]) == 0:
+            print(f"{src}: no usable resamples")
+            continue
+        print(f"{src} ({len(set(ids_arr[m]))} IDs, {skipped} skipped): baseline {ci(b['auroc_a'])}  "
+              f"siamese {ci(b['auroc_b'])}  siamese-baseline {ci(b['auroc_b'] - b['auroc_a'])}")
+
+    # Confidence of mistakes.
+    cap = 25
+    print("\n== Confidence of mistakes ==")
+    for name in names:
+        t_low, t_high = thresholds[name]
+        s_all, tier = test_scores[name], tiers[name]
+        print(name)
+        bad = np.flatnonzero((tier == 0) & (test_labels == 1))
+        bad = bad[np.argsort(-(t_low - s_all[bad]))]  # most confidently wrong first
+        print(f"   malignant images in auto-clear: {len(bad)}  "
+              "(isic_id, real_id, source, score, t_low - score)")
+        for row in bad[:cap]:
+            print(f"      {test_df.at[row, 'isic_id']}  {ids[row]}  {sources[row]}  "
+                  f"score={s_all[row]:.4f}  t_low-score={t_low - s_all[row]:.4f}")
+        if len(bad) > cap:
+            print(f"      ... and {len(bad) - cap} more")
+        ok = (tier == 0) & (test_labels == 0)
+        print(f"   median (t_low - score) over {int(ok.sum())} benign images in auto-clear: "
+              f"{np.median(t_low - s_all[ok]) if ok.any() else float('nan'):.4f}"
+              + (f"   [malignant mistakes: {np.median(t_low - s_all[bad]):.4f}]" if len(bad) else ""))
+        if t_high is None:
+            print("   no flag tier (t_high = none)")
+            continue
+        bad = np.flatnonzero((tier == 2) & (test_labels == 0))
+        bad = bad[np.argsort(-(s_all[bad] - t_high))]
+        print(f"   benign images in flag: {len(bad)}  "
+              "(isic_id, real_id, source, score, score - t_high)")
+        for row in bad[:cap]:
+            print(f"      {test_df.at[row, 'isic_id']}  {ids[row]}  {sources[row]}  "
+                  f"score={s_all[row]:.4f}  score-t_high={s_all[row] - t_high:.4f}")
+        if len(bad) > cap:
+            print(f"      ... and {len(bad) - cap} more")
+        ok = (tier == 2) & (test_labels == 1)
+        print(f"   median (score - t_high) over {int(ok.sum())} malignant images in flag: "
+              f"{np.median(s_all[ok] - t_high) if ok.any() else float('nan'):.4f}"
+              + (f"   [benign mistakes: {np.median(s_all[bad] - t_high):.4f}]" if len(bad) else ""))
+
+    # Score deciles.
+    print("\n== Malignant rate by test-score decile (10 equal-count bins, lowest scores first) ==")
+    for name in names:
+        order = np.argsort(test_scores[name], kind="stable")
+        print(name)
+        print("   bin  images  score range                malignant  rate")
+        for k, rows in enumerate(np.array_split(order, 10), 1):
+            sc, mal = test_scores[name][rows], int(test_labels[rows].sum())
+            print(f"   {k:3d}  {len(rows):6d}  [{sc.min():9.4f}, {sc.max():9.4f}]  {mal:9d}  "
+                  f"{pct(mal, len(rows)):>6}")
+
+    # Wilson interval for the auto-clear miss rate.
+    print("\n== Auto-clear miss rate (malignant in auto-clear / all malignant), Wilson 95% ==")
+    for name in names:
+        k = int(((tiers[name] == 0) & (test_labels == 1)).sum())
+        lo, hi = wilson_interval(k, n_mal)
+        print(f"{name:9s} {k} of {n_mal} = {pct(k, n_mal)}  95% interval [{100 * lo:.2f}%, {100 * hi:.2f}%]")
 
     # ------------------------------------------------ 5. plots
     os.makedirs(out_dir, exist_ok=True)
