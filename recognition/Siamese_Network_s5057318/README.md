@@ -98,6 +98,14 @@ Images are converted to RGB, resized to 224 by 224 and normalised with a mean an
 
 Pairs for the Siamese network: each epoch 9,880 pairs from the training split (the number is rounded down to a multiple of 4). Half are similar and half dissimilar. Similar pairs are split evenly between benign-benign and malignant-malignant, so the rare malignant images are shown much more often. Dissimilar pairs are one benign and one malignant image. Pairs are only built inside one split. Training pairs are redrawn each epoch; validation and test pairs are drawn once from a fixed seed and are identical on every run. The baseline simply shuffles the training images.
 
+Example inputs. Eight training images with their label and ID (all eight happen to be HAM_ images; the data also contains IP_ images). The black corners come from the random rotation used on training images:
+
+![training images](figures/grid.png)
+
+Six validation pairs. Label 0 means a similar pair (same class) and label 1 a dissimilar pair:
+
+![validation pairs](figures/pairs.png)
+
 ## 5. Results
 
 Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC and recall. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples).
