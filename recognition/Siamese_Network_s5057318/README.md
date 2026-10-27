@@ -38,7 +38,7 @@ Seeds and settings:
 
 - Seed 42 for the split, the reference set, the bootstrap and training. The validation and test pairs use seeds 43 and 44 (seed plus 1 and seed plus 2).
 - Two runs of the split with seed 42 gave identical tables. Seed 7 gave a different split (test set of 2,079 images with 182 malignant, instead of 2,151 with 176).
-- Training uses the Adam optimiser with learning rate 0.001 and PyTorch's default betas (0.9, 0.999), no weight decay, no learning-rate schedule and no gradient clipping. Batch size 32. Margin 1.0. Both models were trained for 30 epochs (the default in `train.py` is 20, so `--epochs 30` was passed) with 3 data-loading workers. The checkpoint with the lowest validation loss is kept, and the test split is used once, at the end.
+- Training uses the Adam optimiser with learning rate 0.001 and PyTorch's default betas (0.9, 0.999), no weight decay, no learning-rate schedule and no gradient clipping. Batch size 32. Margin 1.0. Both models were trained for 30 epochs (the default in `train.py` is 20, so `--epochs 30` was passed) with 3 data-loading workers. The checkpoint with the lowest validation loss is kept. Nothing was chosen or tuned on the test split: `train.py` scores it once at the end with the best checkpoint, and `predict.py` scores it for reporting, with thresholds fixed beforehand on validation.
 - `train.py` sets `torch.backends.cudnn.deterministic = True` and `benchmark = False`. On the lab machine cuDNN failed to load, so I disabled it with a small wrapper (below). The wrapper is not part of `train.py`. It makes convolutions slower and changes nothing else that I know of.
 
 Commands (the data folder holds `cleaned_metadata.csv` and `combined_images/`):
@@ -107,7 +107,7 @@ Images are converted to RGB, resized to 224 by 224 and normalised with a mean an
 
 Pairs for the Siamese network: each epoch 9,880 pairs from the training split (the number is rounded down to a multiple of 4). Half are similar and half dissimilar. Similar pairs are split evenly between benign-benign and malignant-malignant, so the rare malignant images are shown much more often. Dissimilar pairs are one benign and one malignant image. Pairs are only built inside one split. Training pairs are redrawn each epoch; validation and test pairs are drawn once from a fixed seed and are identical on every run. The baseline simply shuffles the training images.
 
-How I handled the class imbalance (about 8.5% malignant): the split spreads malignant images across train, validation and test; the Siamese network trains on pairs that are half similar and half dissimilar, with malignant images oversampled in the similar pairs; the baseline uses a weighted loss (benign count divided by malignant count in the training split, about 11); thresholds are chosen on validation and not fixed at 0.5; and I judge models with AUROC, PR-AUC, recall and balanced accuracy, not plain accuracy.
+How I handled the class imbalance (about 8.5% malignant): the split spreads malignant images across train, validation and test; the Siamese network trains on pairs that are half similar and half dissimilar, with malignant images oversampled in the similar pairs; the baseline uses a weighted loss (benign count divided by malignant count in the training split, about 11); thresholds are chosen on validation and not fixed at 0.5; and I judge models with AUROC, PR-AUC, recall, balanced accuracy and the F1 of the melanoma class, not plain accuracy.
 
 Example inputs. Eight training images with their label and ID (all eight happen to be HAM_ images; the data also contains IP_ images). The black corners come from the random rotation used on training images:
 
@@ -119,7 +119,7 @@ Six validation pairs. Label 0 means a similar pair (same class) and label 1 a di
 
 ## 5. Results
 
-Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC and recall. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples).
+Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC, recall and the F1 of the melanoma class. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples).
 
 Example output of `predict.py` (first lines, lab T4 run):
 
@@ -162,6 +162,7 @@ Both thresholds come from the validation split only. `t_low` is the highest thre
 | Recall at t_low / at t_high | 0.9489 / 0.4773 | 0.9545 / 0.1250 |
 | Precision at t_low / at t_high | 0.1505 / 0.4375 | 0.1475 / 0.3438 |
 | Balanced accuracy at t_low / at t_high | 0.7357 / 0.7113 | 0.7314 / 0.5519 |
+| F1 (melanoma class) at t_low / at t_high | 0.2597 / 0.4565 | 0.2555 / 0.1833 |
 
 Accuracy at the two thresholds (worked out from the tier counts above, not printed by my script): baseline 0.557 at `t_low` and 0.907 at `t_high`; Siamese 0.545 and 0.909. The next section looks at accuracy in more detail.
 
@@ -180,10 +181,17 @@ The assignment mentions about 0.8 accuracy, so I also picked cut-offs on the val
 | Test balanced accuracy | 0.7877 | 0.7799 | 0.7754 | 0.7776 |
 | IP recall / accuracy | 0.6629 / 0.7926 | 0.7191 / 0.7484 | 0.6517 / 0.7467 | 0.6517 / 0.7583 |
 | HAM recall / accuracy | 0.9540 / 0.6884 | 0.9540 / 0.6744 | 0.9885 / 0.7116 | 0.9770 / 0.7093 |
+| IP F1 / HAM F1 | 0.2484 / 0.5533 | 0.2282 / 0.5425 | 0.2101 / 0.5811 | 0.2180 / 0.5763 |
 
 None of these reaches 0.8 on the test split. The best test accuracy is 0.7717 (baseline, rule a), which catches 142 of the 176 melanomas (worked out from the recall). That is far below the 0.9182 of a model that calls everything benign, which finds none, so I do not use accuracy to rank the models. Accuracy fell from about 0.80 to 0.82 on validation to 0.73 to 0.77 on test. I think part of this is that the cut-offs were chosen on the 186 validation melanomas, but I did not test why.
 
 The cut-offs behave very differently on the two sources: recall is 95 to 99% on HAM_ images but only 65 to 72% on IP_ images. This fits the earlier result that every melanoma in the auto-clear group was an IP_ image. It also fits the idea that the models partly recognise the image source, but HAM_ is also the more malignant source, so I cannot separate the two explanations.
+
+### F1 of the melanoma class
+
+Staff advised on Ed that for data this imbalanced (about 92% benign) I should report the F1 of the melanoma class and explain it. F1 is the harmonic mean of precision (how many flagged photos really are melanomas) and recall (how many melanomas get flagged), both for the melanoma class. It ignores the benign photos that are correctly cleared, so it is not pushed up by the 92% benign photos: a model that says benign for everything has recall 0 and therefore F1 0, even though its accuracy is 0.918.
+
+The overall F1 values at the triage thresholds are modest (0.18 to 0.46). The best is the baseline at `t_high` (0.4565, with precision 0.4375 and recall 0.4773). At `t_low`, which finds about 95% of melanomas, F1 is only about 0.26 because precision is about 0.15. The Siamese model's F1 at `t_high` is much lower (0.1833) because it flags few melanomas (recall 0.125). With the validation-chosen cut-offs, F1 is 0.34 to 0.37 overall, higher on HAM_ images (0.54 to 0.58) than on IP_ images (0.21 to 0.25).
 
 ### Does the score say how sure the model is?
 
@@ -229,7 +237,7 @@ All 9 melanomas the baseline cleared, and all 8 the Siamese model cleared, are I
 | Test inference, GPU (batch of 64) | 0.91 ms per image | 0.92 ms per image |
 | Peak GPU memory, test inference | 837.4 MB | 837.4 MB |
 
-The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The training plots show losses only. Metrics (AUROC, PR-AUC, recall and accuracy) are computed on the test split once, in `predict.py`, after the best epoch has been chosen on validation loss. The two training losses are different quantities and cannot be compared with each other.
+The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The training plots show losses only. Metrics (AUROC, PR-AUC, recall, F1 and accuracy) are computed on the test split in `predict.py`, after the best epoch has been chosen on validation loss. The two training losses are different quantities and cannot be compared with each other.
 
 ![baseline loss](figures/baseline_loss.png)
 ![siamese loss](figures/siamese_loss.png)
@@ -266,7 +274,7 @@ Can we use this model? Not as it is, and if we did, use the baseline and not the
 
 - One seed and one split. The bootstrap intervals only measure how much the test set could vary, not how much the training could vary. The seed 7 split moved the test set from 176 to 182 malignant images, which shows how much one split can matter.
 - I dropped 10,432 images with no usable ID, and they held 77% of the malignant images. The kept data is less malignant than the full file, so the numbers here are not clinic numbers.
-- HAM_ IDs have one image each, so the split is only patient-safe for IP_ images.
+- HAM_ IDs have one image each, so the split is only patient-safe for IP_ images. Staff replied on Ed that this is acceptable if I explain the limitations and add safeguards, and ideally report both. I report all images and IP_ images separately.
 - Image source may act as a shortcut (see the by-source table).
 - Thresholds were picked on 186 validation malignant images, so they are noisy.
 - Validation and test pairs come from a small number of malignant images used many times.
@@ -275,19 +283,19 @@ Can we use this model? Not as it is, and if we did, use the baseline and not the
 
 ## 9. Artificial Intelligence Usage Disclosure
 
-Tools: Claude Code (in the terminal) for writing and running code, and the Claude chat assistant for planning, writing the prompts I gave Claude Code, reading outputs, suggesting checks, and drafting this README.
+Tools: Claude Code (in the terminal) for writing and running code, and the Claude chat assistant for planning, writing the prompts I gave Claude Code, reading outputs, suggesting checks, and writing the text of this README from my saved outputs.
 
 What the AI wrote:
 
 - Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py` and `check_metrics.py`. It also wrote the threshold-selection code and its tests, from hand-calculated cases in a prompt written by the Claude chat assistant, with the instruction not to change the expected values.
-- Claude chat wrote `check_loader.py` and `verify_split.py`, the lab wrapper `run_train.py`, the commands I ran on Rangpur and the lab machine, a first draft of the feasibility review and a first draft of this README. Many of my commit messages used wording suggested by Claude chat; I ran every commit myself.
+- Claude chat wrote `check_loader.py` and `verify_split.py`, the lab wrapper `run_train.py`, the commands I ran on Rangpur and the lab machine, the text of the feasibility review, and the text of this README, from my saved outputs. I checked its numbers against those outputs. Many of my commit messages used wording suggested by Claude chat; I ran every commit myself.
 
 How I checked it:
 
-- Hand-calculated expected values for the contrastive loss (for example distance 0.3 gives 0.045 for a similar pair and 0.245 for a dissimilar pair), and for the metric functions (AUROC 0.75 and PR-AUC 0.8333 on a four-point example).
-- Showed that the loss test fails when the two terms of the loss are swapped (7 of 10 checks failed, then all passed after restoring the file).
-- Checked the pair labels of six validation pairs against the raw csv, and that each pair only uses images from one split.
-- Ran a separate script that rebuilds every ID from the raw csv and counts splits per ID (zero overlaps), ran the seed experiment, and confirmed the same seed gives the same split.
+- Expected values for the loss and metric tests were calculated by hand in the Claude chat and put into the prompts, and the code was not allowed to change them (for example distance 0.3 gives 0.045 for a similar pair and 0.245 for a dissimilar pair, and AUROC 0.75 and PR-AUC 0.8333 on a four-point example).
+- Claude Code showed, at my request, that the loss test fails when the two terms of the loss are swapped (7 of 10 checks failed, then all passed after restoring the file).
+- Claude Code checked, at my request, the pair labels of six validation pairs against the raw csv, and that each pair only uses images from one split.
+- I ran a separate script that rebuilds every ID from the raw csv and counts splits per ID (zero overlaps), ran the seed experiment, and confirmed the same seed gives the same split.
 - Checked that validation and test images get no augmentation, that the normalisation uses the training split only, and that thresholds are chosen on validation only.
 - Compared the overall metrics from the laptop CPU run and the lab GPU run, and checked that the old results were unchanged after I added the accuracy section.
 - Checked that the tier counts and per-source counts add up to the totals, and that `modules.py` contains no numpy.
@@ -295,7 +303,7 @@ How I checked it:
 
 Things that went wrong along the way: the first version of the dataset had placeholder patient IDs that would have let a split look clean while leaking, which is why I rebuilt the IDs and dropped those rows; the debug-run checkpoints and plots from earlier runs were still in the output folder and had to be replaced with the real ones; cuDNN failed to load on the lab machine, so I trained through a wrapper; I once unpacked the data archive before the upload had finished and got an incomplete folder, which I deleted and unpacked again; and I ran some git commands in the wrong folder at first.
 
-The commit log has 19 commits from 18 October to 27 October, not counting the final README commits.
+The commit log has more than 20 commits from 18 October to 28 October.
 
 ## 10. References
 
