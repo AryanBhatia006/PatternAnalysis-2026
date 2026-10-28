@@ -96,13 +96,22 @@ def _load_rgb(image_dir, isic_id):
     return Image.open(os.path.join(image_dir, f"{isic_id}.jpg")).convert("RGB")
 
 
-def build_transform(mean, std, train):
-    """Augmentation (flips, small rotation) is applied for the train split only."""
+def build_transform(mean, std, train, augment="basic"):
+    """Augmentation is applied for the train split only.
+
+    "basic": flips and small rotation. "strong": basic plus colour jitter and a
+    small random affine (translation, scale).
+    """
     steps = [transforms.Resize((IMAGE_SIZE, IMAGE_SIZE))]
     if train:
         steps += [transforms.RandomHorizontalFlip(),
                   transforms.RandomVerticalFlip(),
                   transforms.RandomRotation(15)]
+        if augment == "strong":
+            steps += [transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.02),
+                      transforms.RandomAffine(0, translate=(0.05, 0.05), scale=(0.9, 1.1))]
+        elif augment != "basic":
+            raise ValueError(f"unknown augment {augment!r}")
     steps += [transforms.ToTensor(), transforms.Normalize(mean, std)]
     return transforms.Compose(steps)
 
@@ -128,7 +137,7 @@ class ISICDataset(Dataset):
         return image, torch.tensor(row["target"], dtype=torch.float32)
 
 
-def get_dataloaders(splits, image_dir, batch_size=32, num_workers=0, seed=SEED):
+def get_dataloaders(splits, image_dir, batch_size=32, num_workers=0, seed=SEED, augment="basic"):
     """Return (train_loader, val_loader, test_loader) from the dict of split_by_id.
 
     Normalisation statistics come from the train split only; only the train
@@ -139,7 +148,7 @@ def get_dataloaders(splits, image_dir, batch_size=32, num_workers=0, seed=SEED):
     loaders = []
     for name in ("train", "val", "test"):
         train = name == "train"
-        dataset = ISICDataset(splits[name], image_dir, build_transform(mean, std, train))
+        dataset = ISICDataset(splits[name], image_dir, build_transform(mean, std, train, augment))
         dataset.mean, dataset.std = mean, std
         loaders.append(DataLoader(dataset, batch_size=batch_size, shuffle=train,
                                   num_workers=num_workers,
@@ -216,7 +225,7 @@ class PairDataset(Dataset):
 
 
 def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
-                         seed=SEED, num_pairs=None, split_seed=None):
+                         seed=SEED, num_pairs=None, split_seed=None, augment="basic"):
     """Return (train_loader, val_loader, test_loader) of image pairs.
 
     Same normalisation (train mean/std) and augmentation policy as
@@ -231,7 +240,7 @@ def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
     loaders = []
     for name in ("train", "val", "test"):
         train = name == "train"
-        dataset = PairDataset(splits[name], image_dir, build_transform(mean, std, train),
+        dataset = PairDataset(splits[name], image_dir, build_transform(mean, std, train, augment),
                               num_pairs=num_pairs, fixed_seed=fixed_seeds[name])
         dataset.mean, dataset.std = mean, std
         loaders.append(DataLoader(dataset, batch_size=batch_size, shuffle=train,
