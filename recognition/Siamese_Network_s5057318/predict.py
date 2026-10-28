@@ -527,6 +527,41 @@ def main():
                       f"precision={fmt(m['precision'])}  F1={fmt(m['f1'])}  "
                       f"balanced acc={fmt(m['balanced_acc'])}")
 
+    # ------------------------------------------------ extra: IP_-only validation thresholds
+    print("\n== IP-only validation thresholds ==")
+    val_df = splits["val"].reset_index(drop=True)
+    assert (val_labels == val_df["target"].to_numpy().astype(int)).all()
+    ip_val = val_df["real_id"].str.startswith("IP_").to_numpy()
+    ip_test = test_df["real_id"].str.startswith("IP_").to_numpy()
+    for what, got, want in (
+            ("IP val images", int(ip_val.sum()), 1595),
+            ("IP val malignant", int(val_labels[ip_val].sum()), 86),
+            ("IP test images", int(ip_test.sum()), 1721),
+            ("IP test malignant", int(test_labels[ip_test].sum()), 89)):
+        print(f"{'PASS' if got == want else 'FAIL'}  {what}: {got} (expected {want})")
+    y_ip_test = test_labels[ip_test]
+    for name in names:
+        s_val, y_val = val_scores[name][ip_val], val_labels[ip_val]
+        s_test = test_scores[name][ip_test]
+        t_low, t_high = choose_thresholds(s_val, y_val)
+        t_bal, _ = select_threshold(s_val, y_val, "balanced")
+        print(f"\n{name}: thresholds from IP validation images only")
+        for title, t in (("t_low", t_low), ("t_high", t_high), ("balanced-accuracy", t_bal)):
+            if t is None:
+                print(f"  {title}: none")
+                continue
+            m = point_metrics(s_test, y_ip_test, t)
+            print(f"  {title}={t:.4f}  IP test images={len(y_ip_test)} malignant={int(y_ip_test.sum())}  "
+                  f"accuracy={fmt(m['accuracy'])}  recall={fmt(m['recall'])}  "
+                  f"precision={fmt(m['precision'])}  F1={fmt(m['f1'])}  "
+                  f"balanced acc={fmt(m['balanced_acc'])}")
+        print("  three-tier table on IP test images (t_low / t_high above):")
+        print_tier_table(s_test, y_ip_test, t_low, t_high, indent="     ")
+        k = int(((assign_tiers(s_test, t_low, t_high) == 0) & (y_ip_test == 1)).sum())
+        lo, hi = wilson_interval(k, int(y_ip_test.sum()))
+        print(f"     auto-clear miss rate: {k} of {int(y_ip_test.sum())} = {pct(k, int(y_ip_test.sum()))}"
+              f"  (Wilson 95% interval {100 * lo:.1f}% to {100 * hi:.1f}%)")
+
 
 if __name__ == "__main__":
     main()
