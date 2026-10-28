@@ -214,6 +214,8 @@ def main():
                         help="nearest references averaged per class in the siamese score")
     parser.add_argument("--n_refs", type=int, default=None,
                         help=f"reference photos per class (default {N_REF}, or {N_REF_DEBUG} with --debug)")
+    parser.add_argument("--preprocess", choices=["none", "grayworld"], default="none",
+                        help="colour-constancy step for all images (must match training)")
     parser.add_argument("--no_cudnn", action="store_true", help="disable cuDNN")
     parser.add_argument("--debug", action="store_true",
                         help="128 val / 128 test images, 20 benign + 20 malignant references")
@@ -234,7 +236,8 @@ def main():
     if args.debug:  # same subsets train.py --debug used, so the normalisation matches
         splits = subsample(splits, args.seed)
     # Eval transform (no augmentation) for every split; mean/std from the train split only.
-    _, val_loader, test_loader = d.get_dataloaders(splits, image_dir, batch_size=64, seed=args.seed)
+    _, val_loader, test_loader = d.get_dataloaders(splits, image_dir, batch_size=64, seed=args.seed,
+                                                 preprocess=args.preprocess)
     test_ds = test_loader.dataset
     mean, std = test_ds.mean, test_ds.std
     test_df = splits["test"].reset_index(drop=True)
@@ -252,6 +255,10 @@ def main():
               f"using: seed {args.seed}, split_seed {args.split_seed}")
         if (ck_seed, ck_split) != (args.seed, args.split_seed):
             print(f"WARNING: {name} checkpoint seeds differ from the ones being used")
+        ck_pre = ck_args.get("preprocess", "none")  # older checkpoints: no preprocessing
+        if ck_pre != args.preprocess:
+            print(f"WARNING: {name} checkpoint was trained with preprocess={ck_pre}, "
+                  f"but --preprocess {args.preprocess} was passed")
 
     # Fixed reference set drawn from the TRAIN split only (seeded).
     train_df = splits["train"].reset_index(drop=True)
