@@ -39,7 +39,7 @@ Seeds and settings:
 - Seed 42 for the split, the reference set, the bootstrap and training. The validation and test pairs use seeds 43 and 44 (seed plus 1 and seed plus 2).
 - Two runs of the split with seed 42 gave identical tables. Seed 7 gave a different split (test set of 2,079 images with 182 malignant, instead of 2,151 with 176).
 - Training uses the Adam optimiser with learning rate 0.001 and PyTorch's default betas (0.9, 0.999), no weight decay, no learning-rate schedule and no gradient clipping. Batch size 32. Margin 1.0. Both models were trained for 30 epochs (the default in `train.py` is 20, so `--epochs 30` was passed) with 3 data-loading workers. The checkpoint with the lowest validation loss is kept. Nothing was chosen or tuned on the test split: `train.py` scores it once at the end with the best checkpoint, and `predict.py` scores it for reporting, with thresholds fixed beforehand on validation.
-- `train.py` sets `torch.backends.cudnn.deterministic = True` and `benchmark = False`. On the lab machine cuDNN failed to load, so I disabled it with a small wrapper (below). The wrapper is not part of `train.py`. It makes convolutions slower and changes nothing else that I know of.
+- On the lab machine cuDNN failed to load, so the training runs turned it off with a small wrapper (below). It makes convolutions slower and changes nothing else that I know of. After those runs I added a `--no_cudnn` option (off by default) and a `--split_seed` option (by default the same as `--seed`) to `train.py` and `predict.py`. With the defaults, a debug run reproduced the earlier losses exactly, and `predict.py` reproduced the earlier results, so the submitted numbers do not depend on that change. `check_seeds.py` tests the seed options.
 
 Commands (the data folder holds `cleaned_metadata.csv` and `combined_images/`):
 
@@ -48,12 +48,13 @@ python recognition/Siamese_Network_s5057318/train.py <data_dir> --model siamese 
 python recognition/Siamese_Network_s5057318/train.py <data_dir> --model baseline --epochs 30 --num_workers 3
 python recognition/Siamese_Network_s5057318/predict.py <data_dir> --no_cudnn
 python recognition/Siamese_Network_s5057318/check_metrics.py
+python recognition/Siamese_Network_s5057318/check_seeds.py <data_dir>
 python recognition/Siamese_Network_s5057318/verify_split.py
 ```
 
-Run them from the repository root. `verify_split.py` has the data folder written at the top of the file (`DATA = r"C:\isic_data"`), so edit that line first.
+Run them from the repository root. On a machine where cuDNN fails, add `--no_cudnn` to the training commands. `verify_split.py` has the data folder written at the top of the file (`DATA = r"C:\isic_data"`), so edit that line first.
 
-On the lab machine the training runs went through this wrapper (saved as `run_train.py` in my home folder there, not committed):
+On the lab machine the training runs went through this wrapper, which did the same thing as `--no_cudnn` (saved as `run_train.py` in my home folder there, not committed):
 
 ```python
 import sys, runpy, torch
@@ -224,7 +225,26 @@ The IP_ and HAM_ images have very different malignant rates in the test split (I
 | Siamese minus baseline AUROC | [-0.0571, 0.0086] | [-0.0853, -0.0197] |
 | Auto-clear malignant missed (baseline / Siamese) | 9 of 89 (10.1%) / 8 of 89 (9.0%) | 0 of 87 / 0 of 87 |
 
-All 9 melanomas the baseline cleared, and all 8 the Siamese model cleared, are IP_ images, so for IP_ images roughly 1 melanoma in 10 would be missed, double the overall figure. On IP_ images I cannot separate the two models (the interval for the AUROC difference includes zero); on HAM_ images the baseline is clearly better. I do not know why. Both models score higher on HAM_ images, but HAM_ is also the more malignant source, so I compare AUROC, which does not depend on how common melanoma is, and I cannot rule out that some of the HAM_ result comes from recognising how those photos look.
+All 9 melanomas the baseline cleared, and all 8 the Siamese model cleared, are IP_ images. With thresholds from all validation images, roughly 1 melanoma in 10 would therefore be missed among IP_ images, double the overall figure (with thresholds chosen on IP_ validation images only it is about 1 in 22 for the baseline and 1 in 13 for the Siamese model, see below). On IP_ images I cannot separate the two models (the interval for the AUROC difference includes zero); on HAM_ images the baseline is clearly better. I do not know why. Both models score higher on HAM_ images, but HAM_ is also the more malignant source, so I compare AUROC, which does not depend on how common melanoma is, and I cannot rule out that some of the HAM_ result comes from recognising how those photos look.
+
+### Thresholds chosen on IP_ validation images only
+
+Staff replied on Ed that reporting the IP_ results as my leakage-safe result is fine if I explain the limitations and add safeguards, and ideally report both. The IP_ rows above use thresholds chosen on all validation images, which include HAM_ images. As a safeguard, `predict.py` also chooses every threshold on the IP_ validation images only (1,595 images, 86 malignant) and applies them unchanged to the IP_ test images (1,721 images, 89 malignant).
+
+| | Baseline | Siamese |
+|---|---|---|
+| t_low (IP_ validation only) | -1.5052 | -0.1060 |
+| Auto-clear: images | 718 (41.7%) | 739 (42.9%) |
+| Auto-clear: malignant missed | 4 of 89 (4.5%) | 7 of 89 (7.9%) |
+| Auto-clear miss rate, 95% interval | [1.8%, 11.0%] | [3.9%, 15.4%] |
+| Recall / precision / F1 at t_low | 0.9551 / 0.0847 / 0.1557 | 0.9213 / 0.0835 / 0.1531 |
+| t_high (IP_ validation only) | 1.7504 | 0.0905 |
+| Flag: images / malignant | 41 / 10 | 16 / 2 |
+| Recall / precision / F1 at t_high | 0.1124 / 0.2439 / 0.1538 | 0.0225 / 0.1250 / 0.0381 |
+| Balanced-accuracy cut-off | -0.5507 | -0.0214 |
+| Accuracy / recall / F1 there | 0.6287 / 0.8427 / 0.1901 | 0.7217 / 0.6854 / 0.2030 |
+
+With these thresholds the auto-clear miss rate on IP_ images is 4.5% for the baseline and 7.9% for the Siamese model, against 10.1% and 9.0% with thresholds from all validation images. Part of this is that the IP_ thresholds are more cautious: they clear 42 to 43% of IP_ images instead of 49 to 51%. The intervals overlap each other and the earlier figures, and the numbers rest on 4 and 7 missed melanomas, so I cannot say the models differ or that one way of choosing thresholds is better. The IP_ validation set has only 86 melanomas, so these thresholds are noisy; on the test images `t_low` keeps 95.5% and 92.1% of the melanomas above it, close to the 95% target.
 
 ### Resources
 
@@ -264,7 +284,7 @@ A way to test the trigger ideas: count how many of the false flags (108 benign i
 
 Can we use this model? Not as it is, and if we did, use the baseline and not the Siamese network.
 
-- Neither model is safe enough to clear photos without a human. Both would auto-clear about 47 to 48% of photos, which saves a lot of review, but they would miss about 1 melanoma in 20 overall and about 1 in 10 among IP_ images. That miss rate comes from the validation rule, and its 95% interval on test is roughly 2.3% to 9.4%, so it is not a guarantee.
+- Neither model is safe enough to clear photos without a human. Both would auto-clear about 47 to 48% of photos, which saves a lot of review, but they would miss about 1 melanoma in 20 overall and about 1 in 10 among IP_ images with the common thresholds (1 in 13 to 1 in 22 with thresholds chosen on IP_ images only). That miss rate comes from the validation rule, and its 95% interval on test is roughly 2.3% to 9.4% overall, so it is not a guarantee.
 - Even with a cut-off chosen for the best balanced accuracy on validation, test accuracy is at best 0.77 (recall 0.81), well below the 0.918 of saying benign every time, which finds no melanomas.
 - The Siamese network costs about 2.2 times the training time and about twice the training memory, takes the same time per image, and does not beat the baseline (PR-AUC 0.29 against 0.45). It catches fewer melanomas in the flag tier (22 of 176, against 84), and its score is a less reliable sign of confidence than the baseline's. On this data the extra complexity is not justified.
 - What I would fix before any deployment: test on photos from other clinics and on the full data including the images I dropped; use a split that is guaranteed patient-safe for all images; check whether the model is recognising the image source; repeat with more seeds; and look at whether a stricter `t_low` (for example one aiming for 99% recall on validation) still auto-clears enough photos to be worth it.
@@ -274,11 +294,12 @@ Can we use this model? Not as it is, and if we did, use the baseline and not the
 
 - One seed and one split. The bootstrap intervals only measure how much the test set could vary, not how much the training could vary. The seed 7 split moved the test set from 176 to 182 malignant images, which shows how much one split can matter.
 - I dropped 10,432 images with no usable ID, and they held 77% of the malignant images. The kept data is less malignant than the full file, so the numbers here are not clinic numbers.
-- HAM_ IDs have one image each, so the split is only patient-safe for IP_ images. Staff replied on Ed that this is acceptable if I explain the limitations and add safeguards, and ideally report both. I report all images and IP_ images separately.
+- HAM_ IDs have one image each, so the split is only patient-safe for IP_ images. Staff replied on Ed that this is acceptable if I explain the limitations and add safeguards, and ideally report both. I report all images and IP_ images separately, and I also chose thresholds on IP_ validation images only.
 - Image source may act as a shortcut (see the by-source table).
-- Thresholds were picked on 186 validation malignant images, so they are noisy.
+- Thresholds were picked on 186 validation malignant images (86 for the IP_-only thresholds), so they are noisy.
 - Validation and test pairs come from a small number of malignant images used many times.
 - I tried one configuration of each model (one margin, one reference-set size, one architecture, one seed).
+- The Siamese model's best epoch in the seed 42 run was 27 of 30, so 30 epochs may not have been enough for it; I did not test longer training.
 - cuDNN was disabled on the lab machine for training, through a wrapper that is not committed.
 
 ## 9. Artificial Intelligence Usage Disclosure
@@ -287,7 +308,7 @@ Tools: Claude Code (in the terminal) for writing and running code, and the Claud
 
 What the AI wrote:
 
-- Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py` and `check_metrics.py`. It also wrote the threshold-selection code and its tests, from hand-calculated cases in a prompt written by the Claude chat assistant, with the instruction not to change the expected values.
+- Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py`, `check_metrics.py` and `check_seeds.py`. It also wrote the threshold-selection code and its tests, from hand-calculated cases in a prompt written by the Claude chat assistant, with the instruction not to change the expected values. It added the `--split_seed` and `--no_cudnn` options and the IP_-only thresholds section.
 - Claude chat wrote `check_loader.py` and `verify_split.py`, the lab wrapper `run_train.py`, the commands I ran on Rangpur and the lab machine, the text of the feasibility review, and the text of this README, from my saved outputs. I checked its numbers against those outputs. Many of my commit messages used wording suggested by Claude chat; I ran every commit myself.
 
 How I checked it:
@@ -296,8 +317,8 @@ How I checked it:
 - Claude Code showed, at my request, that the loss test fails when the two terms of the loss are swapped (7 of 10 checks failed, then all passed after restoring the file).
 - Claude Code checked, at my request, the pair labels of six validation pairs against the raw csv, and that each pair only uses images from one split.
 - I ran a separate script that rebuilds every ID from the raw csv and counts splits per ID (zero overlaps), ran the seed experiment, and confirmed the same seed gives the same split.
-- Checked that validation and test images get no augmentation, that the normalisation uses the training split only, and that thresholds are chosen on validation only.
-- Compared the overall metrics from the laptop CPU run and the lab GPU run, and checked that the old results were unchanged after I added the accuracy section.
+- Checked that validation and test images get no augmentation, that the normalisation uses the training split only, and that thresholds are chosen on validation only (including the IP_-only ones, which use only IP_ validation rows).
+- Compared the overall metrics from the laptop CPU run and the lab GPU run, and checked that the old results were unchanged after I added the accuracy section, the seed options and the IP_-only section (a debug training run reproduced the earlier losses exactly, and `predict.py` reproduced the earlier thresholds, AUROC, tier counts and accuracy cut-offs).
 - Checked that the tier counts and per-source counts add up to the totals, and that `modules.py` contains no numpy.
 - Asked Claude Code to compare this README with the code line by line. It found seven mistakes (a wrong command, a wrong claim about where cuDNN was disabled, two wrong statements about the score deciles and the Siamese model's confidence, a miscounted list of shared misses, a wrong description of one score gap, and a wrong statement about seeds), which are fixed in this version.
 
