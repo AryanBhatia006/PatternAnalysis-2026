@@ -20,7 +20,7 @@ from modules import BaselineCNN, SiameseEncoder
 from train import subsample
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-N_REF, N_REF_DEBUG, K_NEAREST = 200, 20, 5
+N_REF, N_REF_DEBUG = 200, 20
 N_BOOT = 1000
 RECALL_TARGET, PRECISION_TARGET = 0.95, 0.5
 
@@ -210,6 +210,10 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split_seed", type=int, default=None,
                         help="seed of the train/val/test split (default: same as --seed)")
+    parser.add_argument("--k", type=int, default=5,
+                        help="nearest references averaged per class in the siamese score")
+    parser.add_argument("--n_refs", type=int, default=None,
+                        help=f"reference photos per class (default {N_REF}, or {N_REF_DEBUG} with --debug)")
     parser.add_argument("--no_cudnn", action="store_true", help="disable cuDNN")
     parser.add_argument("--debug", action="store_true",
                         help="128 val / 128 test images, 20 benign + 20 malignant references")
@@ -251,7 +255,7 @@ def main():
 
     # Fixed reference set drawn from the TRAIN split only (seeded).
     train_df = splits["train"].reset_index(drop=True)
-    n_ref = N_REF_DEBUG if args.debug else N_REF
+    n_ref = args.n_refs if args.n_refs is not None else (N_REF_DEBUG if args.debug else N_REF)
     gen = torch.Generator().manual_seed(args.seed)
     ref_rows = {}
     for cls in (0, 1):
@@ -281,7 +285,7 @@ def main():
         emb = encoder(images)
 
         def mean_nearest(refs):
-            return torch.cdist(emb, refs).topk(K_NEAREST, dim=1, largest=False).values.mean(dim=1)
+            return torch.cdist(emb, refs).topk(args.k, dim=1, largest=False).values.mean(dim=1)
         return mean_nearest(ref_emb[0]) - mean_nearest(ref_emb[1])  # higher = more malignant-like
 
     models = {"baseline": lambda x: baseline(x).squeeze(1), "siamese": siamese_score}
@@ -562,6 +566,12 @@ def main():
         print(f"     auto-clear miss rate: {k} of {int(y_ip_test.sum())} = {pct(k, int(y_ip_test.sum()))}"
               f"  (Wilson 95% interval {100 * lo:.1f}% to {100 * hi:.1f}%)")
 
+
+    # ------------------------------------------------ extra: validation metrics
+    print("\n== Validation metrics ==")
+    for name in names:
+        print(f"{name:9s} AUROC={auroc(val_scores[name], val_labels):.4f}  "
+              f"PR-AUC={average_precision(val_scores[name], val_labels):.4f}")
 
 if __name__ == "__main__":
     main()
