@@ -76,10 +76,34 @@ def check_no_id_overlap(splits):
                     f"{len(shared)} real IDs in both {a} and {b}, e.g. {sorted(shared)[:5]}")
 
 
-def compute_mean_std(df, image_dir):
-    """Per-channel mean/std over the images in `df` (pass the train split only)."""
+class GrayWorld:
+    """Colour constancy: scale each channel so its mean equals the mean of all three.
+
+    Works on a PIL image and returns a PIL image (values clamped to 0-255).
+    """
+
+    def __call__(self, img):
+        x = transforms.functional.pil_to_tensor(img).float()
+        channel_mean = x.mean(dim=(1, 2), keepdim=True).clamp(min=1e-6)
+        x = (x * (x.mean() / channel_mean)).round().clamp(0, 255).to(torch.uint8)
+        return transforms.functional.to_pil_image(x)
+
+
+def _preprocess_steps(preprocess):
+    if preprocess == "none":
+        return []
+    if preprocess == "grayworld":
+        return [GrayWorld()]
+    raise ValueError(f"unknown preprocess {preprocess!r}")
+
+
+def compute_mean_std(df, image_dir, preprocess="none"):
+    """Per-channel mean/std over the images in `df` (pass the train split only).
+
+    The statistics are taken after `preprocess`, so they match what the model sees.
+    """
     to_tensor = transforms.Compose([transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-                                    transforms.ToTensor()])
+                                    *_preprocess_steps(preprocess), transforms.ToTensor()])
     total = torch.zeros(3, dtype=torch.float64)
     total_sq = torch.zeros(3, dtype=torch.float64)
     for isic_id in df["isic_id"]:
@@ -96,13 +120,14 @@ def _load_rgb(image_dir, isic_id):
     return Image.open(os.path.join(image_dir, f"{isic_id}.jpg")).convert("RGB")
 
 
-def build_transform(mean, std, train, augment="basic"):
+def build_transform(mean, std, train, augment="basic", preprocess="none"):
     """Augmentation is applied for the train split only.
 
     "basic": flips and small rotation. "strong": basic plus colour jitter and a
-    small random affine (translation, scale).
+    small random affine (translation, scale). `preprocess` ("none" or "grayworld")
+    is applied to every split, right after the resize and before augmentation.
     """
-    steps = [transforms.Resize((IMAGE_SIZE, IMAGE_SIZE))]
+    steps = [transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)), *_preprocess_steps(preprocess)]
     if train:
         steps += [transforms.RandomHorizontalFlip(),
                   transforms.RandomVerticalFlip(),
@@ -137,18 +162,19 @@ class ISICDataset(Dataset):
         return image, torch.tensor(row["target"], dtype=torch.float32)
 
 
-def get_dataloaders(splits, image_dir, batch_size=32, num_workers=0, seed=SEED, augment="basic"):
+def get_dataloaders(splits, image_dir, batch_size=32, num_workers=0, seed=SEED, augment="basic",
+                    preprocess="none"):
     """Return (train_loader, val_loader, test_loader) from the dict of split_by_id.
 
     Normalisation statistics come from the train split only; only the train
     loader augments and shuffles.
     """
-    mean, std = compute_mean_std(splits["train"], image_dir)
+    mean, std = compute_mean_std(splits["train"], image_dir, preprocess)
     generator = torch.Generator().manual_seed(seed)
     loaders = []
     for name in ("train", "val", "test"):
         train = name == "train"
-        dataset = ISICDataset(splits[name], image_dir, build_transform(mean, std, train, augment))
+        dataset = ISICDataset(splits[name], image_dir, build_transform(mean, std, train, augment, preprocess))
         dataset.mean, dataset.std = mean, std
         loaders.append(DataLoader(dataset, batch_size=batch_size, shuffle=train,
                                   num_workers=num_workers,
@@ -225,7 +251,8 @@ class PairDataset(Dataset):
 
 
 def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
-                         seed=SEED, num_pairs=None, split_seed=None, augment="basic"):
+                         seed=SEED, num_pairs=None, split_seed=None, augment="basic",
+                         preprocess="none"):
     """Return (train_loader, val_loader, test_loader) of image pairs.
 
     Same normalisation (train mean/std) and augmentation policy as
@@ -233,14 +260,14 @@ def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
     and shuffled; val/test pairs are drawn once from fixed seeds
     (split_seed + 1 and split_seed + 2; split_seed defaults to seed).
     """
-    mean, std = compute_mean_std(splits["train"], image_dir)
+    mean, std = compute_mean_std(splits["train"], image_dir, preprocess)
     generator = torch.Generator().manual_seed(seed)
     split_seed = seed if split_seed is None else split_seed
     fixed_seeds = {"train": None, "val": split_seed + 1, "test": split_seed + 2}
     loaders = []
     for name in ("train", "val", "test"):
         train = name == "train"
-        dataset = PairDataset(splits[name], image_dir, build_transform(mean, std, train, augment),
+        dataset = PairDataset(splits[name], image_dir, build_transform(mean, std, train, augment, preprocess),
                               num_pairs=num_pairs, fixed_seed=fixed_seeds[name])
         dataset.mean, dataset.std = mean, std
         loaders.append(DataLoader(dataset, batch_size=batch_size, shuffle=train,
