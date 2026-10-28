@@ -25,7 +25,7 @@ Shown to my tutor on [DATE], after both models had finished their first full tra
 
 **1. User need, scope and acceptance criteria.** The user is a clinic reviewer who has to triage many skin photos. The prototype gives each photo a score and sorts it into auto-clear, refer or flag. It targets the open dilemma: does the score (here, an embedding distance) track whether the answer is right, or does it stay confident when wrong, and where should the cut-offs go to balance missed melanomas against false alarms? Acceptance criteria:
 
-1. The Siamese network and a baseline CNN are scored on the same test split, with AUROC, PR-AUC, melanoma recall and F1, each with a 95% bootstrap interval. Plain accuracy is not enough, because saying "benign" every time scores 91.8% on my data.
+1. The Siamese network and a baseline CNN are scored on the same test split, with AUROC, PR-AUC, melanoma recall and F1, each with a 95% bootstrap interval. I also report accuracy at cut-offs chosen on validation, because the brief mentions about 0.8, but accuracy alone is not enough: saying "benign" every time scores 91.8% on my data.
 2. Both cut-offs are chosen on validation only. I report the share of melanomas that end up in the auto-clear tier on test, with an interval, aiming for 95% recall on validation.
 3. Confidence check: the malignant rate by score decile, and whether wrong answers sit closer to the cut-off than right ones.
 4. Results are reported separately for the two image sources (IP_ and HAM_), because their malignant rates differ.
