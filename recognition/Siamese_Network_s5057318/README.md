@@ -314,18 +314,46 @@ Three seeds on one split are too few for a proper spread, so I report the range 
 | Test inference, GPU (batch of 64) | 0.91 ms per image | 0.92 ms per image |
 | Peak GPU memory, test inference | 837.4 MB | 837.4 MB |
 
-The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The training plots show losses only. Metrics (AUROC, PR-AUC, recall, F1 and accuracy) are computed on the test split in `predict.py`, after the best epoch has been chosen on validation loss. The two training losses are different quantities and cannot be compared with each other.
+The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The two training losses are different quantities and cannot be compared with each other. These first plots show losses only. Later I added a per-epoch metric to `train.py`, shown below. The test metrics (AUROC, PR-AUC, recall, F1 and accuracy) are computed on the test split in `predict.py`, after the best epoch has been chosen on validation loss.
 
 ![baseline loss](figures/baseline_loss.png)
 ![siamese loss](figures/siamese_loss.png)
+
+**Metrics during training.** `train.py` now records one metric per epoch on the training and validation splits and plots it in `<model>_metrics.png`, next to the loss plot. For the baseline it is the AUROC and PR-AUC of the melanoma score. For the Siamese network it is the AUROC of the pair distance, and the accuracy when a pair is called dissimilar if its distance is above half the margin (0.5). The Siamese numbers are about pairs and cannot be compared with the baseline's. The training curve is a running value on augmented batches while the weights change, so it is only a rough guide; the validation curve is the one to read. The best epoch is still chosen by validation loss alone. The figures below come from a re-run of the control (seed 42, 30 epochs) on Rangpur after I added this code. Its losses match my earlier Rangpur control exactly (baseline best epoch 26 with test loss 0.812953, Siamese best epoch 27 with test loss 0.107898, and the same training and validation losses to six decimal places at the epochs I compared), so the new code did not change the training. At epoch 30 the baseline's validation AUROC is 0.9026 and PR-AUC 0.5183, and the Siamese network's validation pair AUROC is 0.8003 and pair accuracy 0.7258. The logs are in `experiment_logs/final_run_rangpur/`.
+
+![baseline metrics](figures/baseline_metrics.png)
+![siamese metrics](figures/siamese_metrics.png)
 
 The training numbers come from the training logs (seed 42), and the GPU inference numbers come from running `predict.py` on the lab T4. The metrics, tiers and per-source tables come from running `predict.py` on my laptop CPU. An earlier run of the same script on the T4 gave identical overall metrics and tier counts; the per-source tables were only produced on the laptop.
 
 ## 5b. Experiments after tutor feedback
 
-At the check-off on 28 October 2026 my tutor said that if the Siamese model did not do better than the baseline, I should run more experiments, such as data augmentation, image pre-processing and a change of learning rate. This section is the story of what I ran, in the order I ran it, with what each step showed. All the logs are in `experiment_logs/` (see its README for which folder is which run).
+At the check-off on 28 October 2026 my tutor said that if the Siamese model did not do better than the baseline, I should run more experiments, such as data augmentation, image pre-processing and a change of learning rate. This section is the story of what I ran, in the order I ran it, with what each step showed. All the logs, plots and job scripts are in [`experiment_logs/`](experiment_logs/README.md), whose README maps every trial below to its folder. I also asked the teaching team on Ed whether a result that matches but does not clearly beat the baseline would be marked down. The reply was no: comprehensive experiments are a plus, and I should report the experiments and trials clearly, summarise them in a table or figure, and put the supporting evidence in an appendix or a separate file. The table below and the logs folder follow that advice.
 
 **Short version.** Changing the training (augmentation, colour correction, learning rate, longer training) did not close the gap. A diagnostic showed that the main problem was the way the Siamese network was scored (the 5 nearest reference photos), not what it had learned. With a better score (distance to the average of each class) the Siamese network matches the baseline: over three seeds it is about 0.008 higher in test AUROC, level in test PR-AUC, and slightly lower in validation PR-AUC. That edge is small and mostly inside the noise, so I do not claim that it beats the baseline.
+
+### All trials at a glance
+Every trial I ran, in order. "Test" numbers were looked at only after choosing on validation. Details and full tables follow in the steps below; the supporting logs are in [`experiment_logs/`](experiment_logs/README.md).
+
+| # | Trial | What changed | Result (seed 42 unless stated) | Verdict |
+|---|---|---|---|---|
+| 1 | Control on Rangpur | Original settings re-run on a new GPU | Baseline test AUROC 0.8669, Siamese 0.8577 (lab T4: 0.8668 and 0.8464) | Hardware change does not matter |
+| 2 | Strong augmentation | Colour jitter and random shift/scale | Both models worse (Siamese test AUROC 0.8391) | Not used |
+| 3 | Learning rate 0.0003 | Smaller learning rate | No clear change (Siamese test AUROC 0.8476) | Kept as a baseline option |
+| 4 | 60 epochs | Longer training | Small gain for both, inside the reference noise for the Siamese network | Small help |
+| 5 | 100 epochs | Longer training | Both models better (Siamese test AUROC 0.8612) | Helps |
+| 6 | 100 epochs, lr 0.0003 | Both changes | Best baseline on validation (AUROC 0.9167) | Helps |
+| 7 | Gray-world colour correction | Pre-processing on every image | Both models worse (baseline test AUROC 0.8379) | Not used |
+| 8 | Diagnostic (`diagnose.py`) | Reference noise, linear layer on embeddings, pair distances | Reference draw alone moves Siamese validation AUROC by about 0.01; embeddings match the baseline's features on validation | The 5-nearest score is the weak step |
+| 9 | Number of nearest references k | k from 1 to 20 | Score improves as k grows (validation AUROC 0.8621 at k=1, 0.9212 at k=20) | Averaging more neighbours helps |
+| 10 | Prototype score | Distance to each class's average embedding | Siamese matches the baseline (validation AUROC 0.9112 against 0.9081 at 30 epochs) | Adopted |
+| 11 | Margin 2.0 | Larger contrastive margin | No gain | Not used |
+| 12 | Same-source pairs | Both images of a training pair from IP_ or both from HAM_ | Helped only with 5 nearest; worse on validation with the prototype score | Not used |
+| 13 | Sweep of 34 scoring settings | k up to 500, 200 to all references, 10 draws each | Nothing clearly better than the prototype | Prototype kept |
+| 14 | Seeds 7 and 123, 30 epochs | Training seed | Prototype raised Siamese test AUROC in all 3 seeds; Siamese 0.011 above baseline in AUROC, 0.024 below in PR-AUC | Mixed |
+| 15 | Seeds 7 and 123, 100 epochs, two baselines | Training seed, baseline lr 0.001 and 0.0003 | Siamese 0.8805 against baseline 0.8726 test AUROC; PR-AUC tied (0.4939 against 0.4937) | Tie with a small AUROC edge |
+| 16 | Paired bootstrap on test | Resample IDs 1,000 times | 2 of 3 AUROC intervals include zero; all PR-AUC intervals include zero | Edge is within noise |
+| 17 | Triage tiers, 3 seeds | 95% recall on validation | Both models leave 6% to 12.5% of melanomas in auto-clear | Neither safe to auto-clear |
 
 ### Rules I followed
 - One change at a time. Every variant used the same split (split seed 42) and training seed 42 unless a seed is named.
@@ -490,7 +518,7 @@ Tools: Claude Code (in the terminal) for writing and running code, and the Claud
 
 What the AI wrote:
 
-- Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py`, `check_metrics.py` and `check_seeds.py`. It also wrote the threshold-selection code and its tests, from hand-calculated cases in a prompt written by the Claude chat assistant, with the instruction not to change the expected values. It added the `--split_seed` and `--no_cudnn` options and the IP_-only thresholds section. For section 5b it also wrote the options `--augment`, `--preprocess`, `--pair_source`, `--k`, `--n_refs` and `--score`, the validation metrics printout in `predict.py`, and the scripts `diagnose.py` and `sweep_k.py`.
+- Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py`, `check_metrics.py` and `check_seeds.py`. It also wrote the threshold-selection code and its tests, from hand-calculated cases in a prompt written by the Claude chat assistant, with the instruction not to change the expected values. It added the `--split_seed` and `--no_cudnn` options and the IP_-only thresholds section. For section 5b it also wrote the options `--augment`, `--preprocess`, `--pair_source`, `--k`, `--n_refs` and `--score`, the validation metrics printout in `predict.py`, the per-epoch metrics and `<model>_metrics.png` plots in `train.py` (added because the spec asks for losses and metrics to be plotted during training), and the scripts `diagnose.py` and `sweep_k.py`.
 - Claude chat wrote `check_loader.py` and `verify_split.py`, the lab wrapper `run_train.py`, the commands I ran on Rangpur and the lab machine (including the Slurm job scripts in `experiment_logs/`), the plan for the experiments in section 5b, the text of the feasibility review, and the text of this README, from my saved outputs. I checked its numbers against those outputs. Many of my commit messages used wording suggested by Claude chat; I ran every commit myself.
 
 How I checked it:
@@ -503,6 +531,7 @@ How I checked it:
 - Compared the overall metrics from the laptop CPU run and the lab GPU run, and checked that the old results were unchanged after I added the accuracy section, the seed options and the IP_-only section (a debug training run reproduced the earlier losses exactly, and `predict.py` reproduced the earlier thresholds, AUROC, tier counts and accuracy cut-offs).
 - Checked that the extra seed runs used the intended settings. I trained and evaluated them myself on the lab machine. `predict.py` printed the seeds stored in each checkpoint next to the seeds it used (they matched, with split seed 42), the test split was the same 2,151 images with 176 malignant, and the four IP_ count checks passed. I also read the settings back from the four checkpoints: 30 epochs, split seed 42, `no_cudnn` on and 3 data-loading workers, with seed 7 or 123 as expected. The git log shows no code commit after the seed 7 and 123 results were produced.
 - For section 5b: the experiment options default to the old behaviour (I read the code diff against the first submission to confirm that nothing changes the random numbers by default), the first results were never overwritten, the Rangpur control reproduced the lab numbers closely, variants were chosen on validation only, and the rule for calling the Siamese network better was set before I looked at the 100-epoch seed results. I ran every command on Rangpur myself and copied the outputs back to Claude chat.
+- For the per-epoch metrics in `train.py`: I ran the old and the new `train.py` in debug mode on Rangpur, with a second run of the old code to show that it repeats itself, and the losses were identical for both models. A full 30-epoch run of the new code reproduced the earlier Rangpur control exactly (same best epochs and the same baseline test loss). I also checked the AUROC and PR-AUC functions against a four-point example worked out by hand (0.75 and 0.8333) and against a brute-force calculation on random data.
 - Checked that the tier counts and per-source counts add up to the totals, and that `modules.py` contains no numpy.
 - Asked Claude Code to compare this README with the code line by line. It found seven mistakes (a wrong command, a wrong claim about where cuDNN was disabled, two wrong statements about the score deciles and the Siamese model's confidence, a miscounted list of shared misses, a wrong description of one score gap, and a wrong statement about seeds), which are fixed in this version.
 
