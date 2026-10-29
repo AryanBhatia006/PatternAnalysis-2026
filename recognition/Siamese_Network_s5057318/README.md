@@ -539,8 +539,6 @@ Mistakes in earlier drafts of section 5b that I caught and fixed: a claim that t
 
 Things that went wrong along the way: the first version of the dataset had placeholder patient IDs that would have let a split look clean while leaking, which is why I rebuilt the IDs and dropped those rows; the debug-run checkpoints and plots from earlier runs were still in the output folder and had to be replaced with the real ones; cuDNN failed to load on the lab machine, so I trained through a wrapper; I once unpacked the data archive before the upload had finished and got an incomplete folder, which I deleted and unpacked again; and I ran some git commands in the wrong folder at first.
 
-The commit log has about 40 commits from 18 October to 29 October.
-
 ## 10. References
 
 - Hadsell, R., Chopra, S. and LeCun, Y. (2006). Dimensionality reduction by learning an invariant mapping. IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 1735-1742. (Contrastive loss.)
