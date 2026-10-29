@@ -107,6 +107,12 @@ def main():
     parser.add_argument("--split_seed", type=int, default=None,
                         help="seed of the train/val/test split and the val/test pairs "
                              "(default: same as --seed)")
+    parser.add_argument("--augment", choices=["basic", "strong"], default="basic",
+                        help="train-image augmentation (val/test are never augmented)")
+    parser.add_argument("--preprocess", choices=["none", "grayworld"], default="none",
+                        help="colour-constancy step applied to every image of every split")
+    parser.add_argument("--pair_source", choices=["any", "same"], default="any",
+                        help="same: both images of every TRAIN pair come from one source (IP_ or HAM_)")
     parser.add_argument("--no_cudnn", action="store_true", help="disable cuDNN")
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--out_dir", default="outputs",
@@ -137,11 +143,13 @@ def main():
         splits = subsample(splits, args.seed)
     if args.model == "baseline":
         train_loader, val_loader, test_loader = d.get_dataloaders(
-            splits, image_dir, args.batch_size, args.num_workers, seed=args.seed)
+            splits, image_dir, args.batch_size, args.num_workers, seed=args.seed,
+            augment=args.augment, preprocess=args.preprocess)
     else:
         train_loader, val_loader, test_loader = d.get_pair_dataloaders(
             splits, image_dir, args.batch_size, args.num_workers, seed=args.seed,
-            split_seed=args.split_seed)
+            split_seed=args.split_seed, augment=args.augment,
+            preprocess=args.preprocess, pair_source=args.pair_source)
 
     net, step = make_step(args.model, device, args, splits)
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)

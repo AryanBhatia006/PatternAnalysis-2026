@@ -20,7 +20,7 @@ from modules import BaselineCNN, SiameseEncoder
 from train import subsample
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-N_REF, N_REF_DEBUG, K_NEAREST = 200, 20, 5
+N_REF, N_REF_DEBUG = 200, 20
 N_BOOT = 1000
 RECALL_TARGET, PRECISION_TARGET = 0.95, 0.5
 
@@ -210,6 +210,15 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split_seed", type=int, default=None,
                         help="seed of the train/val/test split (default: same as --seed)")
+    parser.add_argument("--k", type=int, default=5,
+                        help="nearest references averaged per class in the siamese score")
+    parser.add_argument("--n_refs", type=int, default=None,
+                        help=f"reference photos per class (default {N_REF}, or {N_REF_DEBUG} with --debug; "
+                             "0 = every training image)")
+    parser.add_argument("--score", choices=["knn", "prototype"], default="knn",
+                        help="knn: k nearest refs per class; prototype: distance to each class's mean ref")
+    parser.add_argument("--preprocess", choices=["none", "grayworld"], default="none",
+                        help="colour-constancy step for all images (must match training)")
     parser.add_argument("--no_cudnn", action="store_true", help="disable cuDNN")
     parser.add_argument("--debug", action="store_true",
                         help="128 val / 128 test images, 20 benign + 20 malignant references")
@@ -223,6 +232,10 @@ def main():
     torch.manual_seed(args.seed)
     print(f"device: {device} | seed: {args.seed} | cudnn: {torch.backends.cudnn.enabled}"
           f"{' | DEBUG' if args.debug else ''}")
+    n_ref = args.n_refs if args.n_refs is not None else (N_REF_DEBUG if args.debug else N_REF)
+    print(f"siamese scoring: --score {args.score} | --n_refs {n_ref}"
+          f"{' (every training image)' if n_ref == 0 else ' per class'}"
+          f"{f' | --k {args.k}' if args.score == 'knn' else ''}")
 
     image_dir = os.path.join(args.data_dir, "combined_images")
     splits = d.split_by_id(d.load_clean_metadata(args.data_dir), seed=args.split_seed)
@@ -230,7 +243,8 @@ def main():
     if args.debug:  # same subsets train.py --debug used, so the normalisation matches
         splits = subsample(splits, args.seed)
     # Eval transform (no augmentation) for every split; mean/std from the train split only.
-    _, val_loader, test_loader = d.get_dataloaders(splits, image_dir, batch_size=64, seed=args.seed)
+    _, val_loader, test_loader = d.get_dataloaders(splits, image_dir, batch_size=64, seed=args.seed,
+                                                 preprocess=args.preprocess)
     test_ds = test_loader.dataset
     mean, std = test_ds.mean, test_ds.std
     test_df = splits["test"].reset_index(drop=True)
@@ -248,15 +262,18 @@ def main():
               f"using: seed {args.seed}, split_seed {args.split_seed}")
         if (ck_seed, ck_split) != (args.seed, args.split_seed):
             print(f"WARNING: {name} checkpoint seeds differ from the ones being used")
+        ck_pre = ck_args.get("preprocess", "none")  # older checkpoints: no preprocessing
+        if ck_pre != args.preprocess:
+            print(f"WARNING: {name} checkpoint was trained with preprocess={ck_pre}, "
+                  f"but --preprocess {args.preprocess} was passed")
 
     # Fixed reference set drawn from the TRAIN split only (seeded).
     train_df = splits["train"].reset_index(drop=True)
-    n_ref = N_REF_DEBUG if args.debug else N_REF
     gen = torch.Generator().manual_seed(args.seed)
     ref_rows = {}
     for cls in (0, 1):
         pool = torch.from_numpy(np.flatnonzero(train_df["target"].to_numpy() == cls))
-        ref_rows[cls] = pool[torch.randperm(len(pool), generator=gen)[:n_ref]].tolist()  # reference set drawn here
+        ref_rows[cls] = pool[torch.randperm(len(pool), generator=gen)[:n_ref or None]].tolist()  # reference set drawn here
         if len(ref_rows[cls]) < n_ref:
             print(f"note: only {len(ref_rows[cls])} class-{cls} images in the train split")
     ref_loaders = {cls: torch.utils.data.DataLoader(
@@ -277,11 +294,15 @@ def main():
             ref_emb[cls] = torch.cat(embs)
     n_refs_total = len(ref_emb[0]) + len(ref_emb[1])
 
+    prototypes = {cls: ref_emb[cls].mean(dim=0, keepdim=True) for cls in (0, 1)}
+
     def siamese_score(images):
         emb = encoder(images)
+        if args.score == "prototype":
+            return (torch.cdist(emb, prototypes[0]) - torch.cdist(emb, prototypes[1])).squeeze(1)
 
         def mean_nearest(refs):
-            return torch.cdist(emb, refs).topk(K_NEAREST, dim=1, largest=False).values.mean(dim=1)
+            return torch.cdist(emb, refs).topk(args.k, dim=1, largest=False).values.mean(dim=1)
         return mean_nearest(ref_emb[0]) - mean_nearest(ref_emb[1])  # higher = more malignant-like
 
     models = {"baseline": lambda x: baseline(x).squeeze(1), "siamese": siamese_score}
@@ -562,6 +583,12 @@ def main():
         print(f"     auto-clear miss rate: {k} of {int(y_ip_test.sum())} = {pct(k, int(y_ip_test.sum()))}"
               f"  (Wilson 95% interval {100 * lo:.1f}% to {100 * hi:.1f}%)")
 
+
+    # ------------------------------------------------ extra: validation metrics
+    print("\n== Validation metrics ==")
+    for name in names:
+        print(f"{name:9s} AUROC={auroc(val_scores[name], val_labels):.4f}  "
+              f"PR-AUC={average_precision(val_scores[name], val_labels):.4f}")
 
 if __name__ == "__main__":
     main()
