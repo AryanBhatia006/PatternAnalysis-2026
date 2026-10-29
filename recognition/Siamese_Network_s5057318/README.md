@@ -328,7 +328,7 @@ The training numbers come from the training logs (seed 42), and the GPU inferenc
 
 ## 5b. Experiments after tutor feedback
 
-At the check-off, my tutor said that if the Siamese model did not do better than the baseline, I should run more experiments, such as data augmentation, image pre-processing and a change of learning rate. This section is the story of what I ran, in the order I ran it, with what each step showed. All the logs, plots and job scripts are in [`experiment_logs/`](experiment_logs/README.md), whose README maps every trial below to its folder. I also asked the teaching team on Ed whether a result that matches but does not clearly beat the baseline would be marked down. The reply was no: comprehensive experiments are a plus, and I should report the experiments and trials clearly, summarise them in a table or figure, and put the supporting evidence in an appendix or a separate file. The table below and the logs folder follow that advice.
+At the check-off my tutor said that if the Siamese model did not do better than the baseline, I should run more experiments, such as data augmentation, image pre-processing and a change of learning rate. This section is the story of what I ran, in the order I ran it, with what each step showed. All the logs, plots and job scripts are in [`experiment_logs/`](experiment_logs/README.md), whose README maps every trial below to its folder. I also asked the teaching team on Ed whether a result that matches but does not clearly beat the baseline would be marked down. The reply was no: comprehensive experiments are a plus, and I should report the experiments and trials clearly, summarise them in a table or figure, and put the supporting evidence in an appendix or a separate file. The table below and the logs folder follow that advice.
 
 **Short version.** Changing the training (augmentation, colour correction, learning rate, longer training) did not close the gap. A diagnostic showed that the main problem was the way the Siamese network was scored (the 5 nearest reference photos), not what it had learned. With a better score (distance to the average of each class) the Siamese network matches the baseline: over three seeds it is about 0.008 higher in test AUROC, level in test PR-AUC, and slightly lower in validation PR-AUC. That edge is small and mostly inside the noise, so I do not claim that it beats the baseline.
 
@@ -464,6 +464,18 @@ The two models clear about the same share of photos. The Siamese network misses 
 - With the prototype score the Siamese network matches the baseline. It is about 0.008 higher in test AUROC (mostly inside the noise), level in test PR-AUC and slightly lower in validation PR-AUC. I do not claim that it beats the baseline.
 - The Siamese network still costs more to train (about 2.6 times the time on Rangpur: 793 s against 305 s for the control, with peak GPU memory of 2.1 GB against 1.1 GB) and the prototype score needs every training image embedded once. On this data I find no evidence that the extra cost pays off.
 - Both models stop around 0.87 to 0.88 test AUROC. My guess is that two small networks trained from scratch on this data reach a similar ceiling, but I did not test this.
+
+### Why the Siamese network does not clearly beat the baseline
+
+I looked for the cause in three places.
+
+1. **The scoring method.** This was the main cause of the first gap (test AUROC 0.8464 against 0.8668, PR-AUC 0.2918 against 0.4483). The 5-nearest score depends on which reference photos are drawn: ten draws moved validation AUROC by about 0.01 and PR-AUC by 0.05 to 0.07. Switching to the prototype score raised the Siamese test AUROC in all three seeds (for example 0.8398 to 0.8711 at seed 7 and 0.7913 to 0.8752 at seed 123) and cut the spread between seeds from 0.066 to 0.009.
+2. **What the embeddings contain.** A linear layer trained on the frozen Siamese embeddings reached validation AUROC 0.9099 and 0.9137, against 0.9082 and 0.9115 for the baseline's own features. So the embeddings carry about as much ranking information as the baseline's features. The contrastive loss did not learn a worse representation.
+3. **The training recipe.** Stronger augmentation, gray-world colour correction, a smaller learning rate, a larger margin and same-source pairs did not close the gap. Longer training helped both models a little on validation.
+
+What this leaves is that both models use the same encoder on the same 9,881 training photos and finish at about 0.87 to 0.88 test AUROC. My explanation, which I did not test, is that the limit comes from the encoder and the data, not from the loss. Here the pair labels come from the same two class labels the baseline already uses, so the pair loss adds no new supervision. A Siamese network usually helps when there are many classes, very few examples per class, or new classes to recognise later, and none of those applies to two classes with about 14,000 labelled photos.
+
+Ideas I did not test: a pre-trained backbone, which would test the encoder explanation directly; triplet loss with hard-negative mining; and a baseline trained on the same pairs and oversampling as the Siamese network, to see whether pair sampling alone explains the difference.
 
 ### Limits
 - I chose among several training variants and about 34 scoring settings using a validation split with 186 melanomas, so the best-looking validation score is probably a little optimistic.
