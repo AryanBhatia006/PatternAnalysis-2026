@@ -19,9 +19,9 @@ Figure: `figures/score_hist.png` shows the test scores of both models. Dashed li
 
 ![score histograms](figures/score_hist.png)
 
-## 2. Feasibility review (shown to my tutor at a prac)
+## 2. Feasibility review
 
-Shown to my tutor on 28 October 2026, after both models had finished their first full training runs. Feedback: if the Siamese model did not do better than the baseline, run more experiments, such as data augmentation, image pre-processing and a change of learning rate (Section 5b reports what I ran). The text I showed (also a one-page PDF):
+Shown to my tutor after both models had finished their first full training runs. Feedback: if the Siamese model did not do better than the baseline, run more experiments, such as data augmentation, image pre-processing and a change of learning rate (Section 5b reports what I ran). The text I showed (also a one-page PDF):
 
 **1. User need, scope and acceptance criteria.** The user is a clinic reviewer who has to triage many skin photos. The prototype gives each photo a score and sorts it into auto-clear, refer or flag. It targets the open dilemma: does the score (here, an embedding distance) track whether the answer is right, or does it stay confident when wrong, and where should the cut-offs go to balance missed melanomas against false alarms? Acceptance criteria:
 
@@ -328,7 +328,7 @@ The training numbers come from the training logs (seed 42), and the GPU inferenc
 
 ## 5b. Experiments after tutor feedback
 
-At the check-off on 28 October 2026 my tutor said that if the Siamese model did not do better than the baseline, I should run more experiments, such as data augmentation, image pre-processing and a change of learning rate. This section is the story of what I ran, in the order I ran it, with what each step showed. All the logs, plots and job scripts are in [`experiment_logs/`](experiment_logs/README.md), whose README maps every trial below to its folder. I also asked the teaching team on Ed whether a result that matches but does not clearly beat the baseline would be marked down. The reply was no: comprehensive experiments are a plus, and I should report the experiments and trials clearly, summarise them in a table or figure, and put the supporting evidence in an appendix or a separate file. The table below and the logs folder follow that advice.
+At the check-off, my tutor said that if the Siamese model did not do better than the baseline, I should run more experiments, such as data augmentation, image pre-processing and a change of learning rate. This section is the story of what I ran, in the order I ran it, with what each step showed. All the logs, plots and job scripts are in [`experiment_logs/`](experiment_logs/README.md), whose README maps every trial below to its folder. I also asked the teaching team on Ed whether a result that matches but does not clearly beat the baseline would be marked down. The reply was no: comprehensive experiments are a plus, and I should report the experiments and trials clearly, summarise them in a table or figure, and put the supporting evidence in an appendix or a separate file. The table below and the logs folder follow that advice.
 
 **Short version.** Changing the training (augmentation, colour correction, learning rate, longer training) did not close the gap. A diagnostic showed that the main problem was the way the Siamese network was scored (the 5 nearest reference photos), not what it had learned. With a better score (distance to the average of each class) the Siamese network matches the baseline: over three seeds it is about 0.008 higher in test AUROC, level in test PR-AUC, and slightly lower in validation PR-AUC. That edge is small and mostly inside the noise, so I do not claim that it beats the baseline.
 
