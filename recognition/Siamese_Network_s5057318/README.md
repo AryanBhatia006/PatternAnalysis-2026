@@ -21,7 +21,7 @@ Figure: `figures/score_hist.png` shows the test scores of both models. Dashed li
 
 ## 2. Feasibility review (shown to my tutor at a prac)
 
-Shown to my tutor on [DATE], after both models had finished their first full training runs. Feedback: [TUTOR FEEDBACK, or "none"]. The text I showed (also a one-page PDF):
+Shown to my tutor on 28 October 2026, after both models had finished their first full training runs. Feedback: if the Siamese model did not do better than the baseline, run more experiments, such as data augmentation, image pre-processing and a change of learning rate (Section 5b reports what I ran). The text I showed (also a one-page PDF):
 
 **1. User need, scope and acceptance criteria.** The user is a clinic reviewer who has to triage many skin photos. The prototype gives each photo a score and sorts it into auto-clear, refer or flag. It targets the open dilemma: does the score (here, an embedding distance) track whether the answer is right, or does it stay confident when wrong, and where should the cut-offs go to balance missed melanomas against false alarms? Acceptance criteria:
 
@@ -61,6 +61,8 @@ python recognition/Siamese_Network_s5057318/check_metrics.py
 python recognition/Siamese_Network_s5057318/check_seeds.py <data_dir>
 python recognition/Siamese_Network_s5057318/verify_split.py
 ```
+
+After the tutor feedback I added options to `train.py` and `predict.py`; all default to the original behaviour, so the commands above give the original results. For the best Siamese scoring found in section 5b, score a trained Siamese network with `python recognition/Siamese_Network_s5057318/predict.py <data_dir> --score prototype --n_refs 0`. The other new options are `--augment {basic,strong}`, `--preprocess {none,grayworld}`, `--pair_source {any,same}` (training), and `--k` and `--n_refs` (nearest-photos score), and `diagnose.py` and `sweep_k.py` are the scripts behind the diagnostic and the sweep in section 5b.
 
 Run them from the repository root. On a machine where cuDNN fails, add `--no_cudnn` to the training commands. For the extra seeds, add `--seed 7 --split_seed 42` (or `--seed 123 --split_seed 42`) to the training commands and to `predict.py`, and point `predict.py` at that seed's checkpoints with `--out_dir` (I used `outputs/seed7` and `outputs/seed123`). `verify_split.py` has the data folder written at the top of the file (`DATA = r"C:\isic_data"`), so edit that line first.
 
@@ -130,6 +132,8 @@ Six validation pairs. Label 0 means a similar pair (same class) and label 1 a di
 
 ## 5. Results
 
+These are the first results, from the original scoring method (mean distance to the 5 nearest of 400 reference photos) and 30 epochs on the lab T4. Section 5b reports the experiments I ran after my tutor's feedback, which show that most of the Siamese network's deficit here comes from that scoring method; the original results are kept unchanged.
+
 Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC, recall and the F1 of the melanoma class. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples). The tables in this section are for the main run (seed 42) unless a heading says otherwise; seeds 7 and 123 are compared in "Other training seeds".
 
 Example output of `predict.py` (first lines, lab T4 run):
@@ -190,9 +194,13 @@ The assignment mentions about 0.8 accuracy, so I also picked cut-offs on the val
 | Test precision | 0.2371 | 0.2127 | 0.2143 | 0.2197 |
 | Test F1 | 0.3665 | 0.3391 | 0.3396 | 0.3458 |
 | Test balanced accuracy | 0.7877 | 0.7799 | 0.7754 | 0.7776 |
+| Benign class: recall / precision / F1 | 0.7686 / 0.9781 / 0.8608 | 0.7246 / 0.9801 / 0.8332 | 0.7327 / 0.9784 / 0.8379 | 0.7428 / 0.9780 / 0.8443 |
+| Macro-F1 (mean of the melanoma-class and benign-class F1) | 0.6136 | 0.5861 | 0.5887 | 0.5951 |
 | IP recall / accuracy | 0.6629 / 0.7926 | 0.7191 / 0.7484 | 0.6517 / 0.7467 | 0.6517 / 0.7583 |
 | HAM recall / accuracy | 0.9540 / 0.6884 | 0.9540 / 0.6744 | 0.9885 / 0.7116 | 0.9770 / 0.7093 |
 | IP F1 / HAM F1 | 0.2484 / 0.5533 | 0.2282 / 0.5425 | 0.2101 / 0.5811 | 0.2180 / 0.5763 |
+
+The benign-class rows and the macro-F1 were worked out from the printed melanoma recall and precision and the class sizes (176 melanomas, 1,975 benign), not printed by my script; the counts they imply (for example 142 true positives, 457 false positives, 34 false negatives and 1,518 true negatives for the baseline under rule a) reproduce the printed accuracy and F1 exactly. The benign class is easy to get right (precision 0.98) because it is 92% of the data, which is why macro-F1 (0.59 to 0.61) is much lower than accuracy would suggest and the melanoma-class numbers matter more.
 
 None of these reaches 0.8 on the test split. The best test accuracy is 0.7717 (baseline, rule a), which catches 142 of the 176 melanomas (worked out from the recall). That is far below the 0.9182 of a model that calls everything benign, which finds none, so I do not use accuracy to rank the models. Accuracy fell from about 0.80 to 0.82 on validation to 0.73 to 0.77 on test. I think part of this is that the cut-offs were chosen on the 186 validation melanomas, but I did not test why.
 
@@ -313,7 +321,132 @@ The Siamese model also needs a one-off step of embedding the 400 reference image
 
 The training numbers come from the training logs (seed 42), and the GPU inference numbers come from running `predict.py` on the lab T4. The metrics, tiers and per-source tables come from running `predict.py` on my laptop CPU. An earlier run of the same script on the T4 gave identical overall metrics and tier counts; the per-source tables were only produced on the laptop.
 
+## 5b. Experiments after tutor feedback
+
+At the check-off on 28 October 2026 my tutor said that if the Siamese model did not do better than the baseline, I should run more experiments, such as data augmentation, image pre-processing and a change of learning rate. This section is the story of what I ran, in the order I ran it, with what each step showed. All the logs are in `experiment_logs/` (see its README for which folder is which run).
+
+**Short version.** Changing the training (augmentation, colour correction, learning rate, longer training) did not close the gap. A diagnostic showed that the main problem was the way the Siamese network was scored (the 5 nearest reference photos), not what it had learned. With a better score (distance to the average of each class) the Siamese network matches the baseline: over three seeds it is about 0.008 higher in test AUROC, level in test PR-AUC, and slightly lower in validation PR-AUC. That edge is small and mostly inside the noise, so I do not claim that it beats the baseline.
+
+### Rules I followed
+- One change at a time. Every variant used the same split (split seed 42) and training seed 42 unless a seed is named.
+- I chose between variants using the validation split only. The test split was not used to choose anything.
+- The baseline got the same training changes as the Siamese network. Options that only make sense for the Siamese network (scoring, margin, pair sampling) were Siamese only, so I compare each model at its own best validation setting.
+- I report every variant I ran, including the ones that made things worse. My first submitted results (seed 42, lab T4 GPU, 5 nearest photos) were never overwritten and stay in sections 4 and 5.
+- I tried about 8 training variants and about 34 scoring settings, so the best-looking validation score is probably slightly optimistic.
+
+### Hardware
+The first results used a lab T4 GPU. These experiments ran on the university's Rangpur cluster (A100 GPU, cuDNN on, Python 3.11.16, PyTorch 2.14.0+cu130, torchvision 0.29.0+cu130, numpy 2.4.6, pandas 3.1.0, Pillow 12.3.0, matplotlib 3.11.2). Because the hardware changed, I first re-ran the original settings on Rangpur as a control and compare every variant with that control. The control gave nearly the same results as the T4 run: baseline test AUROC 0.8669 (T4: 0.8668) and Siamese 0.8577 (T4: 0.8464); baseline PR-AUC 0.4757 (T4: 0.4483). Small differences like these are expected between GPUs. On Rangpur an epoch took about 10 s for the baseline and 25 to 31 s for the Siamese network (45 s with augmentation). Seeds 7 and 123 at 30 epochs were trained on the lab T4 and only re-scored on Rangpur; the 100-epoch runs for seeds 7 and 123 were trained on Rangpur.
+
+### Step 1. Changing the training (what the tutor suggested)
+Scored with the original 5-nearest-photos score. Variants:
+- `aug`: stronger augmentation on training images only (colour jitter with brightness, contrast and saturation 0.2 and hue 0.02, plus a random shift of up to 5% and scale between 0.9 and 1.1).
+- `lr3e4`: learning rate 0.0003 instead of 0.001.
+- `ep60`, `ep100`: 60 and 100 epochs instead of 30.
+- `ep100lr3e4`: 100 epochs with learning rate 0.0003.
+- `pre`: gray-world colour correction on every image after resizing (train, validation and test).
+
+| Variant | Baseline val AUROC / PR-AUC | Siamese val AUROC / PR-AUC | Baseline test AUROC / PR-AUC | Siamese test AUROC / PR-AUC |
+|---|---|---|---|---|
+| Control (30 epochs) | 0.9081 / 0.5432 | 0.8928 / 0.4250 | 0.8669 / 0.4757 | 0.8577 / 0.2993 |
+| Strong augmentation | 0.9027 / 0.5317 | 0.8916 / 0.4109 | 0.8558 / 0.4627 | 0.8391 / 0.3120 |
+| Learning rate 0.0003 | 0.9104 / 0.5585 | 0.8901 / 0.3883 | 0.8671 / 0.4895 | 0.8476 / 0.3029 |
+| 60 epochs | 0.9116 / 0.5550 | 0.9011 / 0.4492 | 0.8694 / 0.4665 | 0.8492 / 0.3157 |
+| 100 epochs | 0.9159 / 0.5754 | 0.9074 / 0.5036 | 0.8718 / 0.4843 | 0.8612 / 0.3958 |
+| 100 epochs, lr 0.0003 | 0.9167 / 0.5830 | 0.9061 / 0.4747 | 0.8744 / 0.4960 | 0.8720 / 0.3966 |
+| Gray-world colour | 0.8923 / 0.4633 | 0.8921 / 0.3687 | 0.8379 / 0.3794 | 0.8394 / 0.2638 |
+
+**What this showed.** Stronger augmentation and gray-world colour correction made both models slightly worse. Longer training helped both models a little. The baseline was ahead of the Siamese network on all four measures in every row except gray-world, where the two were level on AUROC (validation 0.8923 against 0.8921; test 0.8379 against 0.8394). So none of the training changes closed the gap, and the next question was why the Siamese network was behind.
+
+### Step 2. Finding the cause
+I wrote `diagnose.py` and ran it on the saved control and 60-epoch checkpoints. It tests three things.
+
+1. **Reference noise.** The Siamese score compares a photo with 200 random benign and 200 random malignant reference photos. I drew those references ten different ways. The Siamese validation AUROC changed by about 0.01 (range 0.881 to 0.905 for the control, standard deviation 0.0075) and the validation PR-AUC by about 0.05 to 0.07. So the single numbers in the table above, and differences of about 0.01 between variants, are inside this noise. A 60-epoch run that looked better (0.9011 against 0.8928) had a ten-draw mean of 0.8938 against 0.8921, which is no real difference.
+2. **Are the learned embeddings poor?** I trained one linear layer on the frozen Siamese embeddings (weighted loss, stopped on validation loss). On validation it matched the baseline: AUROC 0.9099 (control) and 0.9137 (60 epochs), against 0.9082 and 0.9115 for the same test on the baseline's own features. On test its PR-AUC was lower (0.4363 and 0.4177, against 0.4795 and 0.4872), so I do not claim that the embeddings are as good as the baseline's features on every measure, only that they carry about as much ranking information on validation.
+3. **Pair distances.** On validation, benign-benign pairs had a mean distance of 0.376 and malignant-malignant 0.375, against 0.638 for benign-malignant pairs (60 epochs: 0.329, 0.367 and 0.659). The classes are separated on average but overlap in the tails.
+
+**What this showed.** The weak step was the score: the average distance to only the 5 nearest of 400 random reference photos. It depends on which photos happen to be drawn.
+
+### Step 3. Trying other scores (same trained networks, no retraining)
+I tried several scores on the 60-epoch checkpoint. One reference draw each, except where noted:
+
+| Score | Val AUROC | Val PR-AUC | Test AUROC | Test PR-AUC |
+|---|---|---|---|---|
+| 1 nearest | 0.8621 | 0.3191 | 0.7975 | 0.2045 |
+| 3 nearest | 0.8895 | 0.3833 | 0.8319 | 0.2669 |
+| 5 nearest (original) | 0.9011 | 0.4492 | 0.8492 | 0.3157 |
+| 10 nearest | 0.9159 | 0.5740 | 0.8666 | 0.4110 |
+| 20 nearest | 0.9212 | 0.6051 | 0.8754 | 0.4636 |
+| Average distance to each class (prototype), every training photo | 0.9193 | 0.5770 | 0.8821 | 0.4915 |
+
+The score improves as more neighbours are averaged, and the prototype (all neighbours) is as good as any k I tried, with no k to tune and almost no dependence on which references are drawn (standard deviation 0.001 or less over 10 draws, against 0.0075 to 0.01 for 5 nearest). A sweep over 34 settings (`sweep_k.py`: k from 5 up to 500, with 200, 400, 1000 or all reference photos, 10 draws each) did not find anything clearly better than the prototype on validation. The best nearest-neighbour setting was ahead of the prototype by 0.001 to 0.003 validation AUROC for three of the six checkpoints, the prototype itself was the best setting for two, and for the same-source checkpoint a setting with k = 50 was 0.007 ahead. I chose the prototype because it is the simplest and the least noisy. Because I tried about 34 settings on validation, the best validation score is probably slightly optimistic.
+
+### Step 4. The prototype score with every training variant
+| Training variant | Siamese val AUROC / PR-AUC | Baseline val AUROC / PR-AUC | Siamese test AUROC / PR-AUC | Baseline test AUROC / PR-AUC |
+|---|---|---|---|---|
+| 30 epochs | 0.9112 / 0.5696 | 0.9081 / 0.5432 | 0.8797 / 0.4580 | 0.8669 / 0.4757 |
+| 60 epochs | 0.9193 / 0.5770 | 0.9116 / 0.5550 | 0.8821 / 0.4915 | 0.8694 / 0.4665 |
+| 100 epochs | 0.9216 / 0.5865 | 0.9159 / 0.5754 | 0.8725 / 0.4805 | 0.8718 / 0.4843 |
+| 100 epochs, lr 0.0003 | 0.9194 / 0.5929 | 0.9167 / 0.5830 | 0.8814 / 0.5104 | 0.8744 / 0.4960 |
+| 60 epochs, margin 2.0 | 0.9203 / 0.5197 | 0.9116 / 0.5550 | 0.8825 / 0.4501 | 0.8694 / 0.4665 |
+| 60 epochs, same-source pairs | 0.9041 / 0.5303 | 0.9116 / 0.5550 | 0.8727 / 0.4800 | 0.8694 / 0.4665 |
+
+- `margin 2.0` (the push distance for different-class pairs in the contrastive loss) gave no gain.
+- `same-source pairs`: every training pair is built from images with the same source (IP_ or HAM_), so the network cannot use the source to tell the classes apart. It looked promising under the 5-nearest score (test AUROC 0.8775 against 0.8492), but with the prototype score it is worse than normal pairs on validation (0.9041 against 0.9193), so I do not count it as an improvement. Because the malignant image is drawn first, 43% of its training pairs are HAM_, against 20% of the images.
+
+**What this showed.** With the prototype score the Siamese network is close to the baseline in every row. It is ahead on test AUROC in all six rows and ahead on validation AUROC in every row except the same-source one, but PR-AUC is mixed: on test it is lower in two rows (30 epochs, margin 2.0) and higher in the others.
+
+### Step 5. Is the result stable? More seeds
+Seeds 7 and 123 at 30 epochs (trained on the lab T4, re-scored on Rangpur):
+
+| Seed | Siamese 5 nearest test AUROC / PR-AUC | Siamese prototype test AUROC / PR-AUC | Baseline test AUROC / PR-AUC |
+|---|---|---|---|
+| 42 | 0.8577 / 0.2993 | 0.8797 / 0.4580 | 0.8669 / 0.4757 |
+| 7 | 0.8398 / 0.3453 | 0.8711 / 0.4348 | 0.8672 / 0.4652 |
+| 123 | 0.7913 / 0.1768 | 0.8752 / 0.4278 | 0.8587 / 0.4514 |
+
+The prototype score raised the Siamese test AUROC in all three seeds and cut the spread between seeds from 0.066 to 0.009. Averaged over the three seeds, the Siamese network is 0.011 above the baseline in test AUROC (higher in all three seeds) and 0.024 below it in test PR-AUC (lower in all three seeds). On validation the two are level in AUROC (difference -0.0004).
+
+Then the best settings from the validation results, at 100 epochs, three seeds, trained on Rangpur. The Siamese network uses the prototype score. I ran two baselines, one with learning rate 0.001 (same as the Siamese network) and one with 0.0003 (the best baseline on validation), so that the baseline had the same chance to be tuned.
+
+| Seed | Siamese val AUROC / PR-AUC | Baseline lr 0.0003 val | Baseline lr 0.001 val | Siamese test AUROC / PR-AUC | Baseline lr 0.0003 test | Baseline lr 0.001 test |
+|---|---|---|---|---|---|---|
+| 42 | 0.9216 / 0.5865 | 0.9167 / 0.5830 | 0.9159 / 0.5754 | 0.8725 / 0.4805 | 0.8744 / 0.4960 | 0.8718 / 0.4843 |
+| 7 | 0.9192 / 0.5893 | 0.9182 / 0.5858 | 0.9155 / 0.6021 | 0.8818 / 0.4907 | 0.8688 / 0.4859 | 0.8724 / 0.5030 |
+| 123 | 0.9172 / 0.5352 | 0.9146 / 0.5813 | 0.9174 / 0.5695 | 0.8873 / 0.5105 | 0.8746 / 0.4993 | 0.8701 / 0.4910 |
+| Mean | 0.9193 / 0.5703 | 0.9165 / 0.5834 | 0.9163 / 0.5823 | 0.8805 / 0.4939 | 0.8726 / 0.4937 | 0.8714 / 0.4928 |
+
+Paired bootstrap intervals for Siamese minus baseline (lr 0.0003) on test, resampling IDs (95%): seed 42 AUROC -0.0059 to 0.0197, PR-AUC -0.0306 to 0.0587; seed 7 AUROC -0.0023 to 0.0220, PR-AUC -0.0613 to 0.0411; seed 123 AUROC 0.0048 to 0.0289, PR-AUC -0.0231 to 0.0623. These intervals only measure how much the test set could vary, not how much training varies from seed to seed.
+
+I had set a rule before looking at these runs: the Siamese network counts as better only if, averaged over the three seeds, it is higher on test AUROC and on test PR-AUC, and higher on both in at least two of the three seeds. Against the best-validation baseline (lr 0.0003), AUROC passes (+0.008, higher in 2 of 3 seeds). PR-AUC is a tie on test (+0.0002 on average, higher in 2 of 3 seeds) and slightly lower on validation (0.5703 against 0.5834). So I call it a tie, with a small AUROC edge that is mostly inside the noise: two of the three AUROC intervals include zero. Against the lr 0.001 baseline, test PR-AUC is higher in only 1 of 3 seeds.
+
+### Step 6. What it means for triage
+Test split (176 melanomas), cut-offs from validation only, aiming for 95% recall on validation. Baseline lr 0.0003; Siamese 100 epochs with the prototype score.
+
+| Seed | Baseline auto-clear | Baseline melanomas in auto-clear | Siamese auto-clear | Siamese melanomas in auto-clear |
+|---|---|---|---|---|
+| 42 | 57.9% | 21 (11.9%) | 58.7% | 18 (10.2%) |
+| 7 | 59.6% | 22 (12.5%) | 54.6% | 11 (6.2%) |
+| 123 | 55.4% | 13 (7.4%) | 58.7% | 14 (8.0%) |
+| Mean | 57.6% | 18.7 (10.6%) | 57.3% | 14.3 (8.1%) |
+
+The two models clear about the same share of photos. The Siamese network misses fewer melanomas in two of three seeds, but the difference is a few images out of 176 and it flips at seed 123, so I treat it as no reliable difference. Neither model is safe for auto-clear: even with cut-offs chosen to find 95% of melanomas on validation, 6% to 12.5% of test melanomas ended up in the auto-clear tier. My recommendation in section 7 stands.
+
+### What I conclude
+- The first reason the Siamese network lost was how it was scored, not what it had learned. Changing the training did not close the gap; fixing the score did most of it.
+- With the prototype score the Siamese network matches the baseline. It is about 0.008 higher in test AUROC (mostly inside the noise), level in test PR-AUC and slightly lower in validation PR-AUC. I do not claim that it beats the baseline.
+- The Siamese network still costs more to train (about 2.6 times the time on Rangpur: 793 s against 305 s for the control, with peak GPU memory of 2.1 GB against 1.1 GB) and the prototype score needs every training image embedded once. On this data I find no evidence that the extra cost pays off.
+- Both models stop around 0.87 to 0.88 test AUROC. My guess is that two small networks trained from scratch on this data reach a similar ceiling, but I did not test this.
+
+### Limits
+- I chose among several training variants and about 34 scoring settings using a validation split with 186 melanomas, so the best-looking validation score is probably a little optimistic.
+- The 30-epoch seeds 7 and 123 were trained on a different GPU from the Rangpur runs.
+- The bootstrap intervals do not include the variation between training seeds, and three seeds are too few for a proper spread.
+- I tested one margin, one pair-sampling change and one colour correction. Triplet loss, hard-negative mining, a learning-rate schedule and a network pre-trained on other images were not tried; a pre-trained backbone is the main untested idea.
+- I did not test whether the Siamese network's small AUROC edge comes from the pair loss or just from being a different network, for example by training the baseline with a different loss.
+
 ## 6. Failure cases
+
+The cases below are from the original run (seed 42, original 5-nearest scoring, lab T4), which is the run that the first results come from. I did not redo the autopsy for the prototype score.
 
 `figures/failures.png` shows, for each model, the three malignant test images with the lowest scores and the two benign test images with the highest scores. I cannot judge from a photo whether a lesion is malignant, so the notes below describe what is visible, and the reasons for the failures are guesses that I did not test.
 
@@ -335,7 +468,7 @@ Can we use this model? Not as it is, and if we did, use the baseline and not the
 
 - Neither model is safe enough to clear photos without a human. Both would auto-clear about 47 to 54% of photos (depending on the training seed), which saves a lot of review, but they would miss between 1 melanoma in 22 and 1 in 12 overall (4.5% to 8.0% across the six runs of two models and three seeds) and about 1 in 6 to 1 in 11 among IP_ images with the common thresholds (1 in 7 to 1 in 22 with thresholds chosen on IP_ images only). That miss rate comes from the validation rule, and its 95% interval on test is wide (2.3% to 9.4% at seed 42, 4.4% to 12.9% at seeds 7 and 123), so it is not a guarantee. Seed 42, the main result, had the lowest baseline miss rate of the three seeds.
 - Even with a cut-off chosen for the best balanced accuracy on validation, test accuracy is at best 0.77 (recall 0.81), well below the 0.918 of saying benign every time, which finds no melanomas.
-- The Siamese network costs about 2.2 times the training time and about twice the training memory, takes the same time per image, and does not beat the baseline in any of the three seeds (PR-AUC 0.18 to 0.35 against 0.45 to 0.47; AUROC 0.79 to 0.85 against 0.86 to 0.87). It catches fewer melanomas in the flag tier (seed 42: 22 of 176 against 84; seed 7: 65 against 76; seed 123: no flag tier), and its results change much more from one seed to the next. Its score looked like a less reliable sign of confidence than the baseline's at seed 42, but that did not repeat in the same way at seed 7, so I treat it as unproven. On this data the extra complexity is not justified.
+- With the first scoring method, the Siamese network cost about 2.2 times the training time and about twice the training memory, took the same time per image, and did not beat the baseline in any of the three seeds (PR-AUC 0.18 to 0.35 against 0.45 to 0.47; AUROC 0.79 to 0.85 against 0.86 to 0.87). After the tutor feedback (section 5b) I found that most of that gap came from the scoring method. With the prototype score, the Siamese network matches the baseline (test AUROC about 0.008 higher, mostly inside the noise; PR-AUC level), so the extra training cost still buys no clear gain. With the first scoring method it caught fewer melanomas in the flag tier (seed 42: 22 of 176 against 84; seed 7: 65 against 76; seed 123: no flag tier), and its results changed much more from one seed to the next (the prototype score reduced that spread; section 5b). Its score looked like a less reliable sign of confidence than the baseline's at seed 42, but that did not repeat in the same way at seed 7, so I treat it as unproven. On this data the extra complexity is not justified.
 - What I would fix before any deployment: test on photos from other clinics and on the full data including the images I dropped; use a split that is guaranteed patient-safe for all images; check whether the model is recognising the image source; repeat with more seeds and more than one split; and look at whether a stricter `t_low` (for example one aiming for 99% recall on validation) still auto-clears enough photos to be worth it.
 - A sensible way to use it today: as a sorting aid, where every photo in the refer and flag tiers goes to a person, and auto-cleared photos are still sampled and checked.
 
@@ -347,8 +480,8 @@ Can we use this model? Not as it is, and if we did, use the baseline and not the
 - Image source may act as a shortcut (see the by-source table).
 - Thresholds were picked on 186 validation malignant images (86 for the IP_-only thresholds), so they are noisy.
 - Validation and test pairs come from a small number of malignant images used many times.
-- I tried one configuration of each model (one margin, one reference-set size, one architecture, three training seeds).
-- The Siamese model's best epoch was 27 of 30 at seed 42, 30 of 30 at seed 7 and 24 of 30 at seed 123, so 30 epochs may not have been enough for it; I did not test longer training.
+- The first results use one configuration of each model. The experiments in section 5b tried several training variants, scoring methods, one margin and one pair-sampling change, but only one architecture, and no pre-trained network.
+- The Siamese model's best epoch was 27 of 30 at seed 42, 30 of 30 at seed 7 and 24 of 30 at seed 123, so 30 epochs may not have been enough for it. Section 5b tests 60 and 100 epochs: longer training helped both models a little.
 - cuDNN was disabled on the lab machine for training, through a wrapper that is not committed.
 
 ## 9. Artificial Intelligence Usage Disclosure
@@ -357,8 +490,8 @@ Tools: Claude Code (in the terminal) for writing and running code, and the Claud
 
 What the AI wrote:
 
-- Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py`, `check_metrics.py` and `check_seeds.py`. It also wrote the threshold-selection code and its tests, from hand-calculated cases in a prompt written by the Claude chat assistant, with the instruction not to change the expected values. It added the `--split_seed` and `--no_cudnn` options and the IP_-only thresholds section.
-- Claude chat wrote `check_loader.py` and `verify_split.py`, the lab wrapper `run_train.py`, the commands I ran on Rangpur and the lab machine, the text of the feasibility review, and the text of this README, from my saved outputs. I checked its numbers against those outputs. Many of my commit messages used wording suggested by Claude chat; I ran every commit myself.
+- Claude Code wrote `inspect_data.py`, `dataset.py`, `modules.py`, `train.py`, `predict.py`, `make_grid.py`, `check_modules.py`, `check_loss.py`, `check_pairs.py`, `check_metrics.py` and `check_seeds.py`. It also wrote the threshold-selection code and its tests, from hand-calculated cases in a prompt written by the Claude chat assistant, with the instruction not to change the expected values. It added the `--split_seed` and `--no_cudnn` options and the IP_-only thresholds section. For section 5b it also wrote the options `--augment`, `--preprocess`, `--pair_source`, `--k`, `--n_refs` and `--score`, the validation metrics printout in `predict.py`, and the scripts `diagnose.py` and `sweep_k.py`.
+- Claude chat wrote `check_loader.py` and `verify_split.py`, the lab wrapper `run_train.py`, the commands I ran on Rangpur and the lab machine (including the Slurm job scripts in `experiment_logs/`), the plan for the experiments in section 5b, the text of the feasibility review, and the text of this README, from my saved outputs. I checked its numbers against those outputs. Many of my commit messages used wording suggested by Claude chat; I ran every commit myself.
 
 How I checked it:
 
@@ -369,12 +502,15 @@ How I checked it:
 - Checked that validation and test images get no augmentation, that the normalisation uses the training split only, and that thresholds are chosen on validation only (including the IP_-only ones, which use only IP_ validation rows).
 - Compared the overall metrics from the laptop CPU run and the lab GPU run, and checked that the old results were unchanged after I added the accuracy section, the seed options and the IP_-only section (a debug training run reproduced the earlier losses exactly, and `predict.py` reproduced the earlier thresholds, AUROC, tier counts and accuracy cut-offs).
 - Checked that the extra seed runs used the intended settings. I trained and evaluated them myself on the lab machine. `predict.py` printed the seeds stored in each checkpoint next to the seeds it used (they matched, with split seed 42), the test split was the same 2,151 images with 176 malignant, and the four IP_ count checks passed. I also read the settings back from the four checkpoints: 30 epochs, split seed 42, `no_cudnn` on and 3 data-loading workers, with seed 7 or 123 as expected. The git log shows no code commit after the seed 7 and 123 results were produced.
+- For section 5b: the experiment options default to the old behaviour (I read the code diff against the first submission to confirm that nothing changes the random numbers by default), the first results were never overwritten, the Rangpur control reproduced the lab numbers closely, variants were chosen on validation only, and the rule for calling the Siamese network better was set before I looked at the 100-epoch seed results. I ran every command on Rangpur myself and copied the outputs back to Claude chat.
 - Checked that the tier counts and per-source counts add up to the totals, and that `modules.py` contains no numpy.
 - Asked Claude Code to compare this README with the code line by line. It found seven mistakes (a wrong command, a wrong claim about where cuDNN was disabled, two wrong statements about the score deciles and the Siamese model's confidence, a miscounted list of shared misses, a wrong description of one score gap, and a wrong statement about seeds), which are fixed in this version.
 
+Mistakes in earlier drafts of section 5b that I caught and fixed: a claim that the baseline's validation loss stopped improving at epoch 40 (its best epoch was 53), a wrong count of validation melanomas (186, not about 175), a count of 36 scoring settings (it was 34), a claim that 60 epochs helped the Siamese network (it was inside the reference noise), and a claim that same-source pairs were promising (true only under the 5-nearest score). Some experiment commits first carried a Claude co-author line; I removed it from the branch history on my professor's advice, since AI use is disclosed here.
+
 Things that went wrong along the way: the first version of the dataset had placeholder patient IDs that would have let a split look clean while leaking, which is why I rebuilt the IDs and dropped those rows; the debug-run checkpoints and plots from earlier runs were still in the output folder and had to be replaced with the real ones; cuDNN failed to load on the lab machine, so I trained through a wrapper; I once unpacked the data archive before the upload had finished and got an incomplete folder, which I deleted and unpacked again; and I ran some git commands in the wrong folder at first.
 
-The commit log has more than 20 commits from 18 October to 28 October.
+The commit log has about 40 commits from 18 October to 29 October.
 
 ## 10. References
 
