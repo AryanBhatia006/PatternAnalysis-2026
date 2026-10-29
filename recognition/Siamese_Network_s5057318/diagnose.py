@@ -37,8 +37,14 @@ def draw_references(train_labels, n_ref, seed):
     rows = {}
     for cls in (0, 1):
         pool = torch.from_numpy(np.flatnonzero(train_labels.numpy() == cls))
-        rows[cls] = pool[torch.randperm(len(pool), generator=gen)[:n_ref]]
+        rows[cls] = pool[torch.randperm(len(pool), generator=gen)[:n_ref or None]]  # 0 = every image
     return rows
+
+
+def prototype_score(emb, ref_emb):
+    """Distance to the mean benign reference minus distance to the mean malignant reference."""
+    return (torch.cdist(emb, ref_emb[0].mean(0, keepdim=True))
+            - torch.cdist(emb, ref_emb[1].mean(0, keepdim=True))).squeeze(1)
 
 
 def knn_score(emb, ref_emb, k):
@@ -94,7 +100,9 @@ def main():
                         help="seed of the train/val/test split (default: same as --seed)")
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--n_refs", type=int, default=None,
-                        help=f"reference photos per class (default {N_REF}, or {N_REF_DEBUG} with --debug)")
+                        help=f"reference photos per class (default {N_REF}, or {N_REF_DEBUG} with --debug; "
+                             "0 = every training image)")
+    parser.add_argument("--score", choices=["knn", "prototype"], default="knn")
     parser.add_argument("--preprocess", choices=["none", "grayworld"], default="none")
     parser.add_argument("--no_cudnn", action="store_true", help="disable cuDNN")
     parser.add_argument("--debug", action="store_true",
@@ -108,6 +116,9 @@ def main():
     n_ref = args.n_refs if args.n_refs is not None else (N_REF_DEBUG if args.debug else N_REF)
     print(f"device: {device} | out_dir: {out_dir} | seed: {args.seed} | split_seed: {split_seed}"
           f" | k: {args.k} | n_refs: {n_ref}{' | DEBUG' if args.debug else ''}")
+    print(f"siamese scoring: --score {args.score} | --n_refs {n_ref}"
+          f"{' (every training image)' if n_ref == 0 else ' per class'}"
+          f"{f' | --k {args.k}' if args.score == 'knn' else ''}")
 
     image_dir = os.path.join(args.data_dir, "combined_images")
     splits = d.split_by_id(d.load_clean_metadata(args.data_dir), seed=split_seed)
@@ -134,14 +145,19 @@ def main():
                                   for n in frames))
 
     # ------------------------------------------------ 1. reference noise
-    print(f"\n== 1. Reference noise: Siamese kNN score, k={args.k}, {n_ref} refs per class ==")
+    score_name = f"kNN score, k={args.k}" if args.score == "knn" else "prototype score"
+    refs_txt = "all train images" if n_ref == 0 else f"{n_ref} refs per class"
+    print(f"\n== 1. Reference noise: Siamese {score_name}, {refs_txt} ==")
     print("ref seed   val AUROC  val PR-AUC  test AUROC  test PR-AUC")
     rows = []
     for ref_seed in REF_SEEDS:
         ref_rows = draw_references(labels["train"], n_ref, ref_seed)
         ref_emb = {cls: siam["train"][ref_rows[cls]] for cls in (0, 1)}
-        values = (*metrics(knn_score(siam["val"], ref_emb, args.k).numpy(), labels["val"].numpy()),
-                  *metrics(knn_score(siam["test"], ref_emb, args.k).numpy(), labels["test"].numpy()))
+        def score(emb):
+            return (knn_score(emb, ref_emb, args.k) if args.score == "knn"
+                    else prototype_score(emb, ref_emb)).numpy()
+        values = (*metrics(score(siam["val"]), labels["val"].numpy()),
+                  *metrics(score(siam["test"]), labels["test"].numpy()))
         rows.append(values)
         print(f"{ref_seed:8d}   " + "  ".join(f"{v:>10.4f}" for v in values))
     rows = np.array(rows)

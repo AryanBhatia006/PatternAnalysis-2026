@@ -213,7 +213,10 @@ def main():
     parser.add_argument("--k", type=int, default=5,
                         help="nearest references averaged per class in the siamese score")
     parser.add_argument("--n_refs", type=int, default=None,
-                        help=f"reference photos per class (default {N_REF}, or {N_REF_DEBUG} with --debug)")
+                        help=f"reference photos per class (default {N_REF}, or {N_REF_DEBUG} with --debug; "
+                             "0 = every training image)")
+    parser.add_argument("--score", choices=["knn", "prototype"], default="knn",
+                        help="knn: k nearest refs per class; prototype: distance to each class's mean ref")
     parser.add_argument("--preprocess", choices=["none", "grayworld"], default="none",
                         help="colour-constancy step for all images (must match training)")
     parser.add_argument("--no_cudnn", action="store_true", help="disable cuDNN")
@@ -229,6 +232,10 @@ def main():
     torch.manual_seed(args.seed)
     print(f"device: {device} | seed: {args.seed} | cudnn: {torch.backends.cudnn.enabled}"
           f"{' | DEBUG' if args.debug else ''}")
+    n_ref = args.n_refs if args.n_refs is not None else (N_REF_DEBUG if args.debug else N_REF)
+    print(f"siamese scoring: --score {args.score} | --n_refs {n_ref}"
+          f"{' (every training image)' if n_ref == 0 else ' per class'}"
+          f"{f' | --k {args.k}' if args.score == 'knn' else ''}")
 
     image_dir = os.path.join(args.data_dir, "combined_images")
     splits = d.split_by_id(d.load_clean_metadata(args.data_dir), seed=args.split_seed)
@@ -262,12 +269,11 @@ def main():
 
     # Fixed reference set drawn from the TRAIN split only (seeded).
     train_df = splits["train"].reset_index(drop=True)
-    n_ref = args.n_refs if args.n_refs is not None else (N_REF_DEBUG if args.debug else N_REF)
     gen = torch.Generator().manual_seed(args.seed)
     ref_rows = {}
     for cls in (0, 1):
         pool = torch.from_numpy(np.flatnonzero(train_df["target"].to_numpy() == cls))
-        ref_rows[cls] = pool[torch.randperm(len(pool), generator=gen)[:n_ref]].tolist()  # reference set drawn here
+        ref_rows[cls] = pool[torch.randperm(len(pool), generator=gen)[:n_ref or None]].tolist()  # reference set drawn here
         if len(ref_rows[cls]) < n_ref:
             print(f"note: only {len(ref_rows[cls])} class-{cls} images in the train split")
     ref_loaders = {cls: torch.utils.data.DataLoader(
@@ -288,8 +294,12 @@ def main():
             ref_emb[cls] = torch.cat(embs)
     n_refs_total = len(ref_emb[0]) + len(ref_emb[1])
 
+    prototypes = {cls: ref_emb[cls].mean(dim=0, keepdim=True) for cls in (0, 1)}
+
     def siamese_score(images):
         emb = encoder(images)
+        if args.score == "prototype":
+            return (torch.cdist(emb, prototypes[0]) - torch.cdist(emb, prototypes[1])).squeeze(1)
 
         def mean_nearest(refs):
             return torch.cdist(emb, refs).topk(args.k, dim=1, largest=False).values.mean(dim=1)

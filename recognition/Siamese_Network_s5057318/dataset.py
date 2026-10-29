@@ -195,9 +195,15 @@ class PairDataset(Dataset):
     With `fixed_seed=None` (train) pairs are drawn fresh on every access, so
     they change every epoch. With an int `fixed_seed` (val/test) all pairs are
     drawn once at construction and are identical on every run.
+
+    With `pair_source="same"` both images of a pair come from one source (the
+    IP_ / HAM_ prefix of `real_id`): the first image (the malignant one for
+    malignant-malignant and dissimilar pairs) is drawn as with "any", then the
+    second is drawn from that image's source only.
     """
 
-    def __init__(self, split_df, image_dir, transform, num_pairs=None, fixed_seed=None):
+    def __init__(self, split_df, image_dir, transform, num_pairs=None, fixed_seed=None,
+                 pair_source="any"):
         self.df = split_df.reset_index(drop=True)
         self.image_dir = image_dir
         self.transform = transform
@@ -206,6 +212,20 @@ class PairDataset(Dataset):
         self.malignant = torch.from_numpy(np.flatnonzero(targets == 1))
         if len(self.benign) < 2 or len(self.malignant) < 2:
             raise ValueError("each class needs at least 2 images to form same-class pairs")
+        if pair_source not in ("any", "same"):
+            raise ValueError(f"unknown pair_source {pair_source!r}")
+        self.pair_source = pair_source
+        if pair_source == "same":
+            self.source = self.df["real_id"].str.split("_").str[0].to_numpy()
+            self.by_source = {}  # (source, class) -> row indices
+            for src in np.unique(self.source):
+                for cls in (0, 1):
+                    rows = np.flatnonzero((self.source == src) & (targets == cls))
+                    self.by_source[src, cls] = torch.from_numpy(rows)
+                n_ben, n_mal = len(self.by_source[src, 0]), len(self.by_source[src, 1])
+                if n_ben == 1 or n_mal == 1 or (n_mal and not n_ben):
+                    raise ValueError(f"source {src}: {n_ben} benign / {n_mal} malignant images "
+                                     "is too few for same-source pairs")
         n = num_pairs if num_pairs is not None else len(self.df)
         self.num_pairs = n - n % 4  # whole number of (bb, mm, dis, dis) groups
         self.fixed = fixed_seed is not None
@@ -224,8 +244,30 @@ class PairDataset(Dataset):
             j += 1
         return int(pool[i]), int(pool[j])
 
+    def _from_source(self, first, cls, gen):
+        """A row of class `cls` from the same source as row `first`, never `first` itself."""
+        pool = self.by_source[self.source[first], cls]
+        if int(self.df.at[first, "target"]) != cls:
+            return int(pool[self._randint(len(pool), gen)])
+        pos = int((pool == first).nonzero())
+        j = self._randint(len(pool) - 1, gen)
+        return int(pool[j + 1 if j >= pos else j])  # skip `first` itself
+
+    def _draw_same_source(self, kind, gen):
+        if kind in (0, 1):
+            pool = self.benign if kind == 0 else self.malignant
+            first = int(pool[self._randint(len(pool), gen)])
+            return first, self._from_source(first, kind, gen), 0
+        b = int(self.malignant[self._randint(len(self.malignant), gen)])
+        a = self._from_source(b, 0, gen)
+        if self._randint(2, gen):  # random order within the dissimilar pair
+            a, b = b, a
+        return a, b, 1
+
     def _draw(self, idx, gen):
         kind = idx % 4
+        if self.pair_source == "same":
+            return self._draw_same_source(kind, gen)
         if kind == 0:
             return (*self._same_class(self.benign, gen), 0)
         if kind == 1:
@@ -252,13 +294,14 @@ class PairDataset(Dataset):
 
 def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
                          seed=SEED, num_pairs=None, split_seed=None, augment="basic",
-                         preprocess="none"):
+                         preprocess="none", pair_source="any"):
     """Return (train_loader, val_loader, test_loader) of image pairs.
 
     Same normalisation (train mean/std) and augmentation policy as
     get_dataloaders: only train augments. Train pairs are re-drawn every epoch
     and shuffled; val/test pairs are drawn once from fixed seeds
     (split_seed + 1 and split_seed + 2; split_seed defaults to seed).
+    `pair_source` ("any" or "same") applies to the train pairs only.
     """
     mean, std = compute_mean_std(splits["train"], image_dir, preprocess)
     generator = torch.Generator().manual_seed(seed)
@@ -268,7 +311,8 @@ def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
     for name in ("train", "val", "test"):
         train = name == "train"
         dataset = PairDataset(splits[name], image_dir, build_transform(mean, std, train, augment, preprocess),
-                              num_pairs=num_pairs, fixed_seed=fixed_seeds[name])
+                              num_pairs=num_pairs, fixed_seed=fixed_seeds[name],
+                              pair_source=pair_source if train else "any")
         dataset.mean, dataset.std = mean, std
         loaders.append(DataLoader(dataset, batch_size=batch_size, shuffle=train,
                                   num_workers=num_workers,
