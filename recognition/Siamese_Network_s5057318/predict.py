@@ -312,11 +312,13 @@ def main():
     # prototype minus distance to the malignant prototype. knn: mean distance to the k
     # nearest benign references minus mean distance to the k nearest malignant references.
     def siamese_score(images):
+        """Siamese score for a batch: distance to the benign references minus distance to the malignant references."""
         emb = encoder(images)
         if args.score == "prototype":
             return (torch.cdist(emb, prototypes[0]) - torch.cdist(emb, prototypes[1])).squeeze(1)
 
         def mean_nearest(refs):
+            """Mean distance from each embedding to its k nearest references in refs."""
             return torch.cdist(emb, refs).topk(args.k, dim=1, largest=False).values.mean(dim=1)
         return mean_nearest(ref_emb[0]) - mean_nearest(ref_emb[1])  # higher = more malignant-like
 
@@ -379,6 +381,7 @@ def main():
                                     test_labels, ids, N_BOOT, args.seed)
 
     def ci(x):
+        """Format the 95% bootstrap interval (2.5th to 97.5th percentile) of x as '[low, high]'."""
         lo, hi = np.percentile(x, [2.5, 97.5])
         return f"[{lo:.4f}, {hi:.4f}]"
     print(f"\n== Bootstrap by real_id ({N_BOOT} resamples, {len(set(ids))} test IDs, "
@@ -540,6 +543,7 @@ def main():
 
     # ------------------------------------------------ extra: alternative thresholds (VAL only)
     def fmt(x):
+        """Format x to 4 decimal places, or return 'n/a' if x is NaN."""
         return "n/a" if x != x else f"{x:.4f}"  # NaN -> n/a
 
     print("\n== Alternative thresholds chosen on VAL only (predict malignant when score >= threshold) ==")
