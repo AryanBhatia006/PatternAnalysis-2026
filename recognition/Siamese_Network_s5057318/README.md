@@ -21,7 +21,7 @@ Figure: `figures/score_hist.png` shows the test scores of both models. Dashed li
 
 ## 2. Feasibility review
 
-Shown to my tutor after both models had finished their first full training runs. Feedback: if the Siamese model did not do better than the baseline, run more experiments, such as data augmentation, image pre-processing and a change of learning rate (Section 5b reports what I ran). The text I showed (also a one-page PDF):
+This is the feasibility review I wrote after both models had finished their first full training runs. My tutor's feedback was that if the Siamese model did not do better than the baseline, I should run more experiments, such as data augmentation, image pre-processing and a change of learning rate. Section 5b reports what I ran. The review text is below.
 
 **1. User need, scope and acceptance criteria.** The user is a clinic reviewer who has to triage many skin photos. The prototype gives each photo a score and sorts it into auto-clear, refer or flag. It targets the open dilemma: does the score (here, an embedding distance) track whether the answer is right, or does it stay confident when wrong, and where should the cut-offs go to balance missed melanomas against false alarms? Acceptance criteria:
 
@@ -316,7 +316,7 @@ Three seeds on one split are too few for a proper spread, so I report the range 
 | Test inference, GPU (batch of 64) | 0.91 ms per image | 0.92 ms per image |
 | Peak GPU memory, test inference | 837.4 MB | 837.4 MB |
 
-Measured on the lab Tesla T4 (cuDNN off), training batch size 32, inference batch of 64 images.The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The two training losses are different quantities and cannot be compared with each other. These first plots show losses only. Later I added a per-epoch metric to `train.py`, shown below. The test metrics (AUROC, PR-AUC, recall, F1 and accuracy) are computed on the test split in `predict.py`, after the best epoch has been chosen on validation loss.
+Measured on the lab Tesla T4 (cuDNN off), training batch size 32, inference batch of 64 images. The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The two training losses are different quantities and cannot be compared with each other. These first plots show losses only. Later I added a per-epoch metric to `train.py`, shown below. The test metrics (AUROC, PR-AUC, recall, F1 and accuracy) are computed on the test split in `predict.py`, after the best epoch has been chosen on validation loss.
 
 ![baseline loss](figures/baseline_loss.png)
 ![siamese loss](figures/siamese_loss.png)
