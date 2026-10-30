@@ -136,7 +136,7 @@ Six validation pairs. Label 0 means a similar pair (same class) and label 1 a di
 
 These are the first results, from the original scoring method (mean distance to the 5 nearest of 400 reference photos) and 30 epochs on the lab T4. Section 5b reports the experiments I ran after my tutor's feedback, which show that most of the Siamese network's deficit here comes from that scoring method; the original results are kept unchanged.
 
-Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC, recall and the F1 of the melanoma class. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples) because a HAM_ ID has only one image, resampling IDs does not fully account for patients with several lesions, so these intervals are only a guide to how much the test set could vary. The tables in this section are for the main run (seed 42) unless a heading says otherwise; seeds 7 and 123 are compared in "Other training seeds".
+Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC, recall and the F1 of the melanoma class. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples). Because a HAM_ ID has only one image, resampling IDs does not fully account for patients with several lesions, so these intervals are only a guide to how much the test set could vary. The tables in this section are for the main run (seed 42) unless a heading says otherwise; seeds 7 and 123 are compared in "Other training seeds".
 
 Example output of `predict.py` (first lines, lab T4 run):
 
