@@ -31,7 +31,7 @@ Shown to my tutor after both models had finished their first full training runs.
 4. Results are reported separately for the two image sources (IP_ and HAM_), because their malignant rates differ.
 5. Each model trains in under 2 hours and under 4 GB of GPU memory on one GPU.
 
-**2. Model choice and course concepts.** Data: the 224 by 224 ISIC 2020 copy from Kaggle. I keep the 14,061 images that have a usable patient ID (4,794 IDs, 8.5% malignant) and split 70/15/15 by ID so no patient is in two splits. Difficulty band: Hard. A Siamese network trained from scratch with a contrastive loss (Hadsell et al., 2006; Koch et al., 2015), giving 128-number embeddings of length 1. Training pairs are half similar and half dissimilar, with the rare malignant images oversampled. A photo is scored by its distance to the 5 nearest benign and the 5 nearest malignant reference photos from the training split. The baseline is a CNN with the same four convolution blocks and a weighted cross-entropy loss. This uses the course's convolutional networks, embeddings and train/validation/test discipline.
+**2. Model choice and course concepts.** Data: the 224 by 224 ISIC 2020 copy from Kaggle. I keep the 14,061 images that have a usable patient ID (4,794 IDs, 8.5% malignant) and split 70/15/15 by ID so that images sharing an ID are never in two splits. Difficulty band: Hard. A Siamese network trained from scratch with a contrastive loss (Hadsell et al., 2006; Koch et al., 2015), giving 128-number embeddings of length 1. Training pairs are half similar and half dissimilar, with the rare malignant images oversampled. A photo is scored by its distance to the 5 nearest benign and the 5 nearest malignant reference photos from the training split. The baseline is a CNN with the same four convolution blocks and a weighted cross-entropy loss. This uses the course's convolutional networks, embeddings and train/validation/test discipline.
 
 **3. Preliminary feasibility evidence.** Data audit: 24,493 images in the file; 10,432 have placeholder IDs and were dropped (they hold 77% of the melanomas). Two separate checks find no ID in more than one split. Smoke test: both models ran end to end in a short debug run on a small subset of the images. Resource measurement on the lab T4 (one 30-epoch run each): baseline 18 min and 1.1 GB, Siamese 39.5 min and 2.1 GB, inside criterion 5. First result: AUROC 0.867 for the baseline and 0.846 for the Siamese network.
 
@@ -96,6 +96,8 @@ So the rows I dropped hold 77.3% of all the malignant images in the file, and my
 
 Split: 70/15/15 by real ID, so all images with the same ID go to the same split. IDs are dealt out one at a time, IDs with malignant images first, to whichever split is furthest below its share of images and malignant images. Seed 42.
 
+I used 70/15/15 because it leaves enough malignant images for model selection and testing (186 in validation and 176 in test), while keeping most of the data for training. Images sharing a usable ID were assigned to the same split. This prevents ID overlap, although patient-level separation cannot be guaranteed for HAM_ images because each HAM_ ID has only one image.
+
 | Split | Images | IDs | Malignant |
 |---|---|---|---|
 | Train | 9,881 | 3,367 | 833 (8.43%) |
@@ -134,7 +136,7 @@ Six validation pairs. Label 0 means a similar pair (same class) and label 1 a di
 
 These are the first results, from the original scoring method (mean distance to the 5 nearest of 400 reference photos) and 30 epochs on the lab T4. Section 5b reports the experiments I ran after my tutor's feedback, which show that most of the Siamese network's deficit here comes from that scoring method; the original results are kept unchanged.
 
-Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC, recall and the F1 of the melanoma class. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples). The tables in this section are for the main run (seed 42) unless a heading says otherwise; seeds 7 and 123 are compared in "Other training seeds".
+Test split: 2,151 images, 176 malignant. A model that says "benign" for everything gets 0.9182 accuracy and finds no melanomas, so I judge models on AUROC, PR-AUC, recall and the F1 of the melanoma class. Intervals are 95% bootstrap intervals made by resampling IDs (1,000 resamples) because a HAM_ ID has only one image, resampling IDs does not fully account for patients with several lesions, so these intervals are only a guide to how much the test set could vary. The tables in this section are for the main run (seed 42) unless a heading says otherwise; seeds 7 and 123 are compared in "Other training seeds".
 
 Example output of `predict.py` (first lines, lab T4 run):
 
@@ -314,7 +316,7 @@ Three seeds on one split are too few for a proper spread, so I report the range 
 | Test inference, GPU (batch of 64) | 0.91 ms per image | 0.92 ms per image |
 | Peak GPU memory, test inference | 837.4 MB | 837.4 MB |
 
-The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The two training losses are different quantities and cannot be compared with each other. These first plots show losses only. Later I added a per-epoch metric to `train.py`, shown below. The test metrics (AUROC, PR-AUC, recall, F1 and accuracy) are computed on the test split in `predict.py`, after the best epoch has been chosen on validation loss.
+Measured on the lab Tesla T4 (cuDNN off), training batch size 32, inference batch of 64 images.The Siamese model also needs a one-off step of embedding the 400 reference images (0.47 s on the T4). Both models show the same inference memory, probably because the batch of 64 images dominates it; I did not test this. Training curves are in `figures/baseline_loss.png` and `figures/siamese_loss.png` (from the T4 runs). The two training losses are different quantities and cannot be compared with each other. These first plots show losses only. Later I added a per-epoch metric to `train.py`, shown below. The test metrics (AUROC, PR-AUC, recall, F1 and accuracy) are computed on the test split in `predict.py`, after the best epoch has been chosen on validation loss.
 
 ![baseline loss](figures/baseline_loss.png)
 ![siamese loss](figures/siamese_loss.png)
@@ -488,7 +490,7 @@ Ideas I did not test: a pre-trained backbone, which would test the encoder expla
 
 The cases below are from the original run (seed 42, original 5-nearest scoring, lab T4), which is the run that the first results come from. I did not redo the autopsy for the prototype score.
 
-`figures/failures.png` shows, for each model, the three malignant test images with the lowest scores and the two benign test images with the highest scores. I cannot judge from a photo whether a lesion is malignant, so the notes below describe what is visible, and the reasons for the failures are guesses that I did not test.
+`figures/failures.png` shows, for each model, the three malignant test images with the lowest scores and the two benign test images with the highest scores. I cannot judge from a photo whether a lesion is malignant, so the notes below describe what is visible, and the reasons for the failures are guesses that I did not test. To confirm any of them, I would need to count how often the same feature (blur, ink, hair, strong colour) appears among correctly scored images.
 
 ![failure cases](figures/failures.png)
 
@@ -526,7 +528,8 @@ Can we use this model? Not as it is, and if we did, use the baseline and not the
 
 ## 9. Artificial Intelligence Usage Disclosure
 
-Tools: Claude Code (in the terminal) for writing and running code, and the Claude chat assistant for planning, writing the prompts I gave Claude Code, reading outputs, suggesting checks, and writing the text of this README from my saved outputs.
+Tools: Claude Code (in the terminal) for help in writing and running code, and the Claude chat assistant for planning, writing the prompts I gave Claude Code, reading outputs, suggesting checks, and writing the text of this README from my saved outputs.
+
 
 What the AI wrote:
 
