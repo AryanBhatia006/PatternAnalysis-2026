@@ -19,6 +19,7 @@ KS = [5, 10, 20, 30, 50, 100, 200, 500]
 
 
 def main():
+    """Embed every split once, then print val/test metrics for every scoring setting."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder with cleaned_metadata.csv and combined_images/")
     parser.add_argument("--out_dir", default="outputs",
@@ -72,6 +73,7 @@ def main():
           f"{'val AUROC':>15s}  {'val PR-AUC':>15s}  {'test AUROC':>15s}  {'test PR-AUC':>15s}")
     results = []  # (label, mean values)
     for n_ref in N_REFS:
+        # References per class actually available; k values above the smaller class are skipped.
         per_class = {cls: n_class[cls] if n_ref == 0 else min(n_ref, n_class[cls]) for cls in (0, 1)}
         scores = [("knn", k) for k in KS if k <= min(per_class.values())] + [("prototype", None)]
         seeds = [REF_SEEDS.start] if n_ref == 0 else list(REF_SEEDS)

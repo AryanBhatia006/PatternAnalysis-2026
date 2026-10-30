@@ -7,12 +7,14 @@ failures = 0
 
 
 def report(name, ok, detail=""):
+    """Print PASS or FAIL for one check and count the failures."""
     global failures
     failures += not ok
     print(f"{'PASS' if ok else 'FAIL'}  {name} {detail}")
 
 
 def loss_value(d, y, margin=1.0):
+    """ContrastiveLoss value for distances `d` and labels `y` given as lists."""
     return ContrastiveLoss(margin).loss_from_distance(torch.tensor(d), torch.tensor(y)).item()
 
 
@@ -30,6 +32,7 @@ for name, d, y, expected in cases:
 
 
 def grad_of(d, y):
+    """Gradient of the loss with respect to one distance `d` with label `y`."""
     d = torch.tensor([d], requires_grad=True)
     ContrastiveLoss(1.0).loss_from_distance(d, torch.tensor([y])).backward()
     return d.grad.item()

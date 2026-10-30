@@ -1,3 +1,11 @@
+"""Sanity checks for dataset.get_dataloaders on the real data.
+
+Prints the shape, dtype and value range of one train batch, checks that val/test
+images load identically twice while train images differ (augmentation), counts
+labels over 20 train batches and prints the train mean/std. Run from the
+repository root (the data path DATA is hard-coded at the top of this file):
+    python recognition/Siamese_Network_s5057318/check_loader.py
+"""
 import sys
 import torch
 

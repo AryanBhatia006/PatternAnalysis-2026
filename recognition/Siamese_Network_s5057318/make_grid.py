@@ -14,6 +14,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def main():
+    """Save a 2x4 grid of the first 4 malignant and first 4 benign train images.
+
+    Images go through the train transform (so they are augmented) and are
+    un-normalised with the train mean/std for display.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder containing cleaned_metadata.csv")
     parser.add_argument("--image_dir", help="default: <data_dir>/combined_images")

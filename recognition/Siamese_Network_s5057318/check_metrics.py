@@ -7,6 +7,7 @@ failures = 0
 
 
 def check(name, got, expected, tol=1e-4):
+    """Print PASS if `got` is within `tol` of `expected`, else FAIL, and count failures."""
     global failures
     ok = abs(got - expected) < tol
     failures += not ok
@@ -35,6 +36,11 @@ for k, n, (lo_exp, hi_exp) in ((9, 176, (0.0271, 0.0943)), (0, 10, (0.0, 0.2775)
 
 # Threshold selection, hand-calculated (rule "balanced" = (a), rule "recall_acc" = (b)).
 def check_threshold(name, scores, labels, rule, expected_t, expected=None):
+    """Compare select_threshold with a hand-calculated threshold and metrics.
+
+    `expected_t=None` means no threshold should qualify; `expected` maps metric
+    names to their expected values (tolerance 1e-4).
+    """
     global failures
     t, m = select_threshold(scores, labels, rule)
     if expected_t is None:

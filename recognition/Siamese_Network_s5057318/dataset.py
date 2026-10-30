@@ -41,6 +41,9 @@ def split_by_id(df, fractions=FRACTIONS, seed=SEED):
     images. This keeps split sizes and malignant % close to each other.
     Returns a dict {split_name: DataFrame}.
     """
+    # Patient-ID split rule: count images (n) and malignant images (mal) per real ID,
+    # shuffle the IDs with the seed, then sort most-malignant first. The sort is stable,
+    # so IDs with the same malignant count keep their shuffled order.
     rng = np.random.default_rng(seed)
     per_id = df.groupby("real_id")["target"].agg(n="size", mal="sum")
     per_id = per_id.loc[rng.permutation(per_id.index)]  # seeded tie-breaking
@@ -51,6 +54,9 @@ def split_by_id(df, fractions=FRACTIONS, seed=SEED):
     count = {s: 0.0 for s in names}
     mal = {s: 0.0 for s in names}
     assign = {}
+    # Greedy assignment: each ID (with all its images) goes to the split with the largest
+    # deficit = relative shortfall of images + relative shortfall of malignant images
+    # against that split's target fraction.
     for real_id, n, m in zip(per_id.index, per_id["n"], per_id["mal"]):
         def deficit(s):
             f = fractions[s]
@@ -83,6 +89,7 @@ class GrayWorld:
     """
 
     def __call__(self, img):
+        """Return a colour-corrected copy of the PIL image `img`."""
         x = transforms.functional.pil_to_tensor(img).float()
         channel_mean = x.mean(dim=(1, 2), keepdim=True).clamp(min=1e-6)
         x = (x * (x.mean() / channel_mean)).round().clamp(0, 255).to(torch.uint8)
@@ -90,6 +97,7 @@ class GrayWorld:
 
 
 def _preprocess_steps(preprocess):
+    """Transform steps for the `preprocess` option: [] for "none", [GrayWorld()] for "grayworld"."""
     if preprocess == "none":
         return []
     if preprocess == "grayworld":
@@ -117,6 +125,7 @@ def compute_mean_std(df, image_dir, preprocess="none"):
 
 
 def _load_rgb(image_dir, isic_id):
+    """Open <image_dir>/<isic_id>.jpg as an RGB PIL image."""
     return Image.open(os.path.join(image_dir, f"{isic_id}.jpg")).convert("RGB")
 
 
@@ -226,18 +235,23 @@ class PairDataset(Dataset):
                 if n_ben == 1 or n_mal == 1 or (n_mal and not n_ben):
                     raise ValueError(f"source {src}: {n_ben} benign / {n_mal} malignant images "
                                      "is too few for same-source pairs")
+        # Default length: one pair per image in the split, rounded down to a multiple of 4.
         n = num_pairs if num_pairs is not None else len(self.df)
         self.num_pairs = n - n % 4  # whole number of (bb, mm, dis, dis) groups
         self.fixed = fixed_seed is not None
+        # Val/test: every pair is drawn once here from a seeded generator. Train: pairs are
+        # drawn on each access from the global torch RNG (see draw()), so they change every epoch.
         if self.fixed:
             gen = torch.Generator().manual_seed(fixed_seed)
             self._pairs = [self._draw(k, gen) for k in range(self.num_pairs)]
 
     @staticmethod
     def _randint(n, gen):
+        """Random int in [0, n) from `gen` (the global torch RNG when `gen` is None)."""
         return int(torch.randint(n, (1,), generator=gen))
 
     def _same_class(self, pool, gen):
+        """Two different row indices drawn uniformly from `pool`."""
         i = self._randint(len(pool), gen)
         j = self._randint(len(pool) - 1, gen)
         if j >= i:  # skip i itself, so the two images are never the same
@@ -254,20 +268,26 @@ class PairDataset(Dataset):
         return int(pool[j + 1 if j >= pos else j])  # skip `first` itself
 
     def _draw_same_source(self, kind, gen):
+        """Pair of kind `kind` (0 bb, 1 mm, 2/3 dissimilar) with both images from one source."""
         if kind in (0, 1):
             pool = self.benign if kind == 0 else self.malignant
             first = int(pool[self._randint(len(pool), gen)])
             return first, self._from_source(first, kind, gen), 0
         b = int(self.malignant[self._randint(len(self.malignant), gen)])
+        # Dissimilar: the malignant image b was drawn first; the benign image a comes from b's source.
         a = self._from_source(b, 0, gen)
         if self._randint(2, gen):  # random order within the dissimilar pair
             a, b = b, a
         return a, b, 1
 
     def _draw(self, idx, gen):
+        """Draw pair number `idx` as (row_1, row_2, label); `idx % 4` sets the pair kind."""
         kind = idx % 4
         if self.pair_source == "same":
             return self._draw_same_source(kind, gen)
+        # pair_source "any": kind 0 = two different benign images, kind 1 = two different
+        # malignant images (label 0, similar); kinds 2 and 3 = one random benign and one random
+        # malignant image in random order (label 1, dissimilar).
         if kind == 0:
             return (*self._same_class(self.benign, gen), 0)
         if kind == 1:
@@ -321,6 +341,7 @@ def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
 
 
 def main():
+    """Print images, IDs and malignant count per split and run the ID-overlap check."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder containing cleaned_metadata.csv")
     args = parser.parse_args()

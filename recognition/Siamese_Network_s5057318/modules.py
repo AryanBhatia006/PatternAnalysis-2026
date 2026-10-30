@@ -32,6 +32,7 @@ class BaselineCNN(nn.Module):
         self.fc = nn.Linear(256, 1)                 # pooled 256 features -> 1 logit
 
     def forward(self, x):
+        """Return one raw logit per image, shape [N, 1]."""
         x = self.block4(self.block3(self.block2(self.block1(x))))
         x = F.adaptive_avg_pool2d(x, 1).flatten(1)  # global average pooling -> [N, 256]
         return self.fc(x)
@@ -62,6 +63,7 @@ class SiameseEncoder(nn.Module):
         self.fc = nn.Linear(256, embed_dim)  # pooled 256 features -> embedding
 
     def forward(self, x):
+        """Return L2-normalised embeddings, shape [N, embed_dim]."""
         x = F.adaptive_avg_pool2d(self.features(x), 1).flatten(1)  # [N, 256]
         return F.normalize(self.fc(x), dim=1)  # L2-normalise each embedding
 
@@ -87,6 +89,8 @@ class ContrastiveLoss(nn.Module):
     def loss_from_distance(self, d, y):
         """Mean contrastive loss given distances `d` and labels `y` (same shape)."""
         y = y.to(d.dtype)
+        # Similar pairs (y = 0) cost 0.5 * d^2; dissimilar pairs (y = 1) cost
+        # 0.5 * (margin - d)^2 while d < margin and nothing once d >= margin.
         similar = (1 - y) * 0.5 * d.pow(2)
         dissimilar = y * 0.5 * torch.clamp(self.margin - d, min=0).pow(2)
         return (similar + dissimilar).mean()

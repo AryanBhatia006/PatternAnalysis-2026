@@ -1,3 +1,11 @@
+"""Independent check of dataset.split_by_id.
+
+Rebuilds every real ID straight from the raw CSV (without dataset.py's real_id
+column) and reports images without an ID, IDs found in more than one split and
+the image totals. Run from the repository root (the data path DATA is hard-coded
+at the top of this file):
+    python recognition/Siamese_Network_s5057318/verify_split.py
+"""
 import sys
 import pandas as pd
 
@@ -22,6 +30,7 @@ for name, part in named.items():
 raw = pd.read_csv(DATA + r"\cleaned_metadata.csv")
 
 def real_id(s):
+    """First non-dummy ID in a comma-separated patient_id field (written separately from dataset.py)."""
     for x in str(s).split(","):
         x = x.strip().strip('"')
         if x and not x.startswith("dummy"):

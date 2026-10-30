@@ -81,6 +81,8 @@ def select_threshold(scores, labels, rule, min_accuracy=0.80):
     """
     scores, y = np.asarray(scores, dtype=float), np.asarray(labels).astype(bool)
     candidates = np.unique(scores)  # ascending
+    # Row c of `pred` holds the predictions at threshold candidates[c]; tp and tn are
+    # then counted per candidate threshold.
     pred = scores[None, :] >= candidates[:, None]
     tp = (pred & y).sum(axis=1)
     tn = (~pred & ~y).sum(axis=1)
@@ -102,9 +104,13 @@ def select_threshold(scores, labels, rule, min_accuracy=0.80):
 def choose_thresholds(val_scores, val_labels):
     """Operating points from the VALIDATION split only."""
     val_scores, val_labels = np.asarray(val_scores, dtype=float), np.asarray(val_labels)
+    # t_low: sort the val malignant scores; `keep` = ceil(95% of them). t_low is the
+    # keep-th highest malignant score, so exactly `keep` (or more, with ties) are >= t_low.
     malignant = np.sort(val_scores[val_labels == 1])
     keep = math.ceil(RECALL_TARGET * len(malignant) - 1e-9)  # malignant that must stay >= t_low
     t_low = float(malignant[len(malignant) - keep])  # highest t keeping >= 95% of val malignant
+    # t_high: the lowest distinct val score whose precision (for score >= t) is >= 0.5;
+    # None if no threshold reaches that precision.
     precision, _, thresholds = _precision_recall_points(val_scores, val_labels)
     ok = thresholds[precision >= PRECISION_TARGET]
     t_high = float(ok.min()) if len(ok) else None  # lowest t with val precision >= 0.5
@@ -168,6 +174,7 @@ def print_tier_table(scores, labels, t_low, t_high, indent=""):
 
 # ---------------------------------------------------------------- inference
 def sync(device):
+    """Wait for queued GPU work so timings are accurate (does nothing on the CPU)."""
     if device.type == "cuda":
         torch.cuda.synchronize()
 
@@ -189,20 +196,24 @@ def run_scores(score_fn, loader, device):
 
 
 def load_checkpoint(model, path, device):
+    """Load the weights saved by train.py into `model`; return (model in eval mode, checkpoint dict)."""
     ckpt = torch.load(path, map_location=device)
     model.load_state_dict(ckpt["model"])
     return model.to(device).eval(), ckpt
 
 
 def n_params(model):
+    """Number of trainable parameters in `model`."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def pct(a, b):
+    """a / b as a percentage string with one decimal, or "n/a" when b is 0."""
     return f"{100 * a / b:.1f}%" if b else "n/a"
 
 
 def main():
+    """Score val and test with both models, choose thresholds on val only and print every section."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder with cleaned_metadata.csv and combined_images/")
     parser.add_argument("--out_dir", default="outputs",
@@ -294,8 +305,12 @@ def main():
             ref_emb[cls] = torch.cat(embs)
     n_refs_total = len(ref_emb[0]) + len(ref_emb[1])
 
+    # Prototype of each class = mean of its reference embeddings (not re-normalised).
     prototypes = {cls: ref_emb[cls].mean(dim=0, keepdim=True) for cls in (0, 1)}
 
+    # Siamese score, higher = more malignant-like. prototype: distance to the benign
+    # prototype minus distance to the malignant prototype. knn: mean distance to the k
+    # nearest benign references minus mean distance to the k nearest malignant references.
     def siamese_score(images):
         emb = encoder(images)
         if args.score == "prototype":

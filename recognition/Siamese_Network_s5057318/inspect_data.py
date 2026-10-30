@@ -8,6 +8,7 @@ from dataset import extract_real_id
 
 
 def main():
+    """Print rows kept, malignant count, unique real IDs and malignant percentage."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder containing cleaned_metadata.csv")
     args = parser.parse_args()

@@ -31,6 +31,7 @@ DEBUG_TRAIN, DEBUG_VAL, DEBUG_EPOCHS = 256, 128, 2
 
 
 def set_seed(seed):
+    """Seed Python, NumPy and torch (CPU and CUDA) and make cuDNN deterministic."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -162,6 +163,7 @@ def evaluate(net, step, loader, outputs=None):
 
 
 def main():
+    """Train with a validation pass every epoch, keep the lowest-val-loss checkpoint, test it once."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder with cleaned_metadata.csv and combined_images/")
     parser.add_argument("--model", choices=["baseline", "siamese"], required=True)

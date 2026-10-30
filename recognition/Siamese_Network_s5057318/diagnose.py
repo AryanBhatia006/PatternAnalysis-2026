@@ -41,6 +41,8 @@ def draw_references(train_labels, n_ref, seed):
     return rows
 
 
+# Both scores below are 'distance to benign minus distance to malignant', so a higher
+# score means an image sits closer to the malignant references (same as predict.py).
 def prototype_score(emb, ref_emb):
     """Distance to the mean benign reference minus distance to the mean malignant reference."""
     return (torch.cdist(emb, ref_emb[0].mean(0, keepdim=True))
@@ -55,6 +57,7 @@ def knn_score(emb, ref_emb, k):
 
 
 def metrics(scores, labels):
+    """(AUROC, PR-AUC) computed with predict.py's metric functions."""
     scores, labels = np.asarray(scores), np.asarray(labels).astype(int)
     return auroc(scores, labels), average_precision(scores, labels)
 
@@ -91,6 +94,7 @@ def linear_probe(train_x, train_y, val_x, val_y, test_x, test_y, seed):
 
 
 def main():
+    """Embed every split once with both models and print the three diagnostics."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder with cleaned_metadata.csv and combined_images/")
     parser.add_argument("--out_dir", default="outputs",

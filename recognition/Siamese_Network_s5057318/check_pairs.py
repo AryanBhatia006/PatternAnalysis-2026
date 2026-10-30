@@ -17,10 +17,12 @@ KINDS = {(0, 0): "benign-benign", (1, 1): "malignant-malignant"}
 
 
 def kind_of(ds, i, j):
+    """Pair kind of rows i and j from their targets: benign-benign, malignant-malignant or dissimilar."""
     return KINDS.get((int(ds.df.at[i, "target"]), int(ds.df.at[j, "target"])), "dissimilar")
 
 
 def main():
+    """Check 2000 pairs per split, check val/test reproducibility and save a grid of 6 val pairs."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", help="folder containing cleaned_metadata.csv")
     parser.add_argument("--image_dir", help="default: <data_dir>/combined_images")

@@ -14,6 +14,7 @@ failures = 0
 
 
 def check(name, got, expected):
+    """Print PASS if `got == expected`, else FAIL, and count failures."""
     global failures
     ok = got == expected
     failures += not ok
@@ -21,11 +22,13 @@ def check(name, got, expected):
 
 
 def summary(splits):
+    """([images per split], [malignant per split]) in train, val, test order."""
     names = ("train", "val", "test")
     return ([len(splits[n]) for n in names], [int(splits[n]["target"].sum()) for n in names])
 
 
 def id_sets(splits):
+    """The set of isic_id values in each split."""
     return {n: set(splits[n]["isic_id"]) for n in ("train", "val", "test")}
 
 
