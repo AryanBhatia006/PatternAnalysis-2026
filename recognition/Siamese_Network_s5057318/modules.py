@@ -41,6 +41,9 @@ class BaselineCNN(nn.Module):
 class SiameseEncoder(nn.Module):
     """Shared-weight encoder that maps an image to a unit-length embedding.
 
+    Siamese setup after Koch, Zemel and Salakhutdinov (2015), Siamese neural
+    networks for one-shot image recognition, ICML Deep Learning Workshop.
+
     Uses the same four Conv-BatchNorm-ReLU-MaxPool blocks as BaselineCNN, then
     global average pooling and a Linear layer to `embed_dim`. The output is
     L2-normalised with F.normalize(dim=1), so every embedding has length 1 and
@@ -70,6 +73,9 @@ class SiameseEncoder(nn.Module):
 
 class ContrastiveLoss(nn.Module):
     """Contrastive loss for pairs of embeddings.
+
+    Follows Hadsell, Chopra and LeCun (2006), Dimensionality reduction by
+    learning an invariant mapping, CVPR.
 
     Label convention: y = 0 for a SIMILAR pair (same class) and y = 1 for a
     DISSIMILAR pair (different class). With d the Euclidean distance between
