@@ -41,7 +41,7 @@ This is the feasibility review I wrote after both models had finished their firs
 
 Laptop (Windows, CPU; used for the evaluation and the per-source analysis): Python 3.14.7, torch 2.14.1+cpu, torchvision 0.29.1+cpu, numpy 2.5.2, pandas 3.0.6, matplotlib 3.11.2, pillow 12.3.0.
 
-Lab GPU machine (UQ Virtual GPU Lab, Tesla T4; used for training): Python 3.10, torch 2.14.0+cu130, torchvision 0.29.0+cu130. The course environment on that machine was used as it was, and I did not record the pandas and matplotlib versions there.
+Lab GPU machine (UQ Virtual GPU Lab, Tesla T4; used for training): Python 3.10, torch 2.14.0+cu130, torchvision 0.29.0+cu130. The course environment on that machine was used as it was. pandas 2.3.3 and matplotlib 3.10.9
 
 Seeds and settings:
 
@@ -162,6 +162,10 @@ siamese   AUROC=0.8464  PR-AUC=0.2918
 | Siamese minus baseline, PR-AUC | [-0.2190, -0.0857] | |
 
 The baseline is ahead on both. The AUROC gap is small and its interval only just excludes zero. The PR-AUC gap is large. This is one training seed on one split. Two more seeds ("Other training seeds", below) show the baseline ahead on both AUROC and PR-AUC again.
+
+Figure: `figures/pr_curves.png` shows the test precision-recall curves of both models with the original 5-nearest scoring. The PR-AUC values in the legend are the ones in the table above, and the dashed line is the malignant rate (8.18%). The baseline is clearly ahead at low recall, and the two curves come together from a recall of about 0.6. It is made by `python recognition/Siamese_Network_s5057318/plot_pr_curves.py <data_dir>`.
+
+![precision-recall curves](figures/pr_curves.png)
 
 ### Triage rule
 
