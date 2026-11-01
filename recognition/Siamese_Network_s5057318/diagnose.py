@@ -52,6 +52,7 @@ def prototype_score(emb, ref_emb):
 def knn_score(emb, ref_emb, k):
     """Mean distance to the k nearest benign refs minus to the k nearest malignant refs."""
     def mean_nearest(refs):
+        """Mean distance from each embedding to its k nearest references in refs."""
         return torch.cdist(emb, refs).topk(k, dim=1, largest=False).values.mean(dim=1)
     return mean_nearest(ref_emb[0]) - mean_nearest(ref_emb[1])
 
@@ -137,6 +138,7 @@ def main():
     encoder, _ = load_checkpoint(SiameseEncoder(), os.path.join(out_dir, "siamese_best.pt"), device)
 
     def baseline_features(x):  # the pooled 256-d vector the final Linear layer sees
+        """Return the 256-d pooled feature vector the baseline's final linear layer sees."""
         x = baseline.block4(baseline.block3(baseline.block2(baseline.block1(x))))
         return F.adaptive_avg_pool2d(x, 1).flatten(1)
 
@@ -158,6 +160,7 @@ def main():
         ref_rows = draw_references(labels["train"], n_ref, ref_seed)
         ref_emb = {cls: siam["train"][ref_rows[cls]] for cls in (0, 1)}
         def score(emb):
+            """Score embeddings against this reference draw (kNN or prototype, as set by --score)."""
             return (knn_score(emb, ref_emb, args.k) if args.score == "knn"
                     else prototype_score(emb, ref_emb)).numpy()
         values = (*metrics(score(siam["val"]), labels["val"].numpy()),

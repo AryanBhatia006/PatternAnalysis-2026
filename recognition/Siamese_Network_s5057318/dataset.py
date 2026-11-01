@@ -59,6 +59,7 @@ def split_by_id(df, fractions=FRACTIONS, seed=SEED):
     # against that split's target fraction.
     for real_id, n, m in zip(per_id.index, per_id["n"], per_id["mal"]):
         def deficit(s):
+            """Relative shortfall of images plus relative shortfall of malignant images for split s."""
             f = fractions[s]
             return ((f * total_n - count[s]) / (f * total_n)
                     + (f * total_mal - mal[s]) / max(f * total_mal, 1))

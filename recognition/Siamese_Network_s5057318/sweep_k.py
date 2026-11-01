@@ -84,6 +84,7 @@ def main():
                 ref_emb = {cls: siam["train"][ref_rows[cls]] for cls in (0, 1)}
 
                 def score(emb):
+                    """Score embeddings against this reference draw (kNN with k, or prototype)."""
                     return (knn_score(emb, ref_emb, k) if kind == "knn"
                             else prototype_score(emb, ref_emb)).numpy()
                 rows.append((*metrics(score(siam["val"]), labels["val"].numpy()),

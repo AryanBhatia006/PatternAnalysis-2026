@@ -106,6 +106,7 @@ def make_step(model_name, device, args, splits):
             pos_weight=torch.tensor([float(pos_weight)], device=device))
 
         def step(batch):
+            """Run one baseline batch: return the weighted BCE loss and batch size, and store logits and labels in step.last."""
             images, labels = batch
             images = images.to(device)
             labels = labels.to(device).unsqueeze(1)  # float, same shape as logits [N, 1]
@@ -117,6 +118,7 @@ def make_step(model_name, device, args, splits):
         criterion = ContrastiveLoss(margin=args.margin)
 
         def step(batch):
+            """Run one pair batch through the shared encoder: return the contrastive loss and batch size, and store pair distances and labels in step.last."""
             img1, img2, labels = batch  # label 0 = similar, 1 = dissimilar
             n = len(img1)
             emb = net(torch.cat([img1, img2]).to(device))  # same encoder for both images
