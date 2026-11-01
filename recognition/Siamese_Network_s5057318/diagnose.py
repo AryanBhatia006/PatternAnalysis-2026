@@ -69,12 +69,15 @@ def linear_probe(train_x, train_y, val_x, val_y, test_x, test_y, seed):
     Features are standardised with train statistics. The step with the lowest
     validation loss is kept. Returns (best_step, val metrics, test metrics).
     """
+    # standardise every split with the train mean/std (the clamp avoids dividing by ~0)
     mu, sd = train_x.mean(0), train_x.std(0).clamp(min=1e-6)
     train_x, val_x, test_x = [(x - mu) / sd for x in (train_x, val_x, test_x)]
+    # weight malignant examples by the benign/malignant count in train, as in the baseline
     pos_weight = torch.tensor([float((train_y == 0).sum()) / float((train_y == 1).sum())])
     torch.manual_seed(seed)
     layer = torch.nn.Linear(train_x.shape[1], 1)
     optimizer = torch.optim.Adam(layer.parameters(), lr=LINEAR_LR)
+    # best = (lowest val loss so far, its step, a copy of the layer weights at that step)
     best = (float("inf"), 0, None)
     for step in range(1, LINEAR_STEPS + 1):
         optimizer.zero_grad()
@@ -82,11 +85,13 @@ def linear_probe(train_x, train_y, val_x, val_y, test_x, test_y, seed):
                                                   pos_weight=pos_weight)
         loss.backward()
         optimizer.step()
+        # val loss after this step, used to pick the best step
         with torch.no_grad():
             val_loss = F.binary_cross_entropy_with_logits(
                 layer(val_x).squeeze(1), val_y.float(), pos_weight=pos_weight).item()
         if val_loss < best[0]:
             best = (val_loss, step, {k: v.clone() for k, v in layer.state_dict().items()})
+    # restore the weights from the step with the lowest validation loss
     layer.load_state_dict(best[2])
     with torch.no_grad():
         val_m = metrics(layer(val_x).squeeze(1).numpy(), val_y.numpy())

@@ -29,16 +29,19 @@ def main():
     splits = d.split_by_id(d.load_clean_metadata(args.data_dir))
     train_loader, _, _ = d.get_dataloaders(splits, image_dir)
     train_set = train_loader.dataset
+    # shape mean/std as (3, 1, 1) so they broadcast over a (3, H, W) image
     mean = torch.tensor(train_set.mean).view(3, 1, 1)
     std = torch.tensor(train_set.std).view(3, 1, 1)
 
     targets = train_set.df["target"]
+    # row indices of the first 4 malignant and the first 4 benign train images
     picks = (targets[targets == 1].index[:4].tolist()
              + targets[targets == 0].index[:4].tolist())
 
     fig, axes = plt.subplots(2, 4, figsize=(12, 6.5))
     for ax, idx in zip(axes.flat, picks):
         image, label = train_set[idx]
+        # undo the normalisation (x * std + mean) and reorder to H x W x C for imshow
         shown = (image * std + mean).clamp(0, 1).permute(1, 2, 0).numpy()
         ax.imshow(shown)
         ax.set_title(f"{'malignant' if label == 1 else 'benign'}\n"

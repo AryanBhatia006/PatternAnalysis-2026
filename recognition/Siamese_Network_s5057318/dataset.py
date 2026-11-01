@@ -327,14 +327,18 @@ def get_pair_dataloaders(splits, image_dir, batch_size=32, num_workers=0,
     mean, std = compute_mean_std(splits["train"], image_dir, preprocess)
     generator = torch.Generator().manual_seed(seed)
     split_seed = seed if split_seed is None else split_seed
+    # train pairs are re-drawn each epoch (no fixed seed); val and test pairs use fixed seeds so they are identical on every run
     fixed_seeds = {"train": None, "val": split_seed + 1, "test": split_seed + 2}
     loaders = []
     for name in ("train", "val", "test"):
         train = name == "train"
+        # pair_source only applies to the train pairs; val and test pairs always use "any"
         dataset = PairDataset(splits[name], image_dir, build_transform(mean, std, train, augment, preprocess),
                               num_pairs=num_pairs, fixed_seed=fixed_seeds[name],
                               pair_source=pair_source if train else "any")
+        # keep the train mean/std on the dataset so callers can un-normalise images for display
         dataset.mean, dataset.std = mean, std
+        # shuffle only the train pairs; the seeded generator makes that shuffle reproducible
         loaders.append(DataLoader(dataset, batch_size=batch_size, shuffle=train,
                                   num_workers=num_workers,
                                   generator=generator if train else None))
